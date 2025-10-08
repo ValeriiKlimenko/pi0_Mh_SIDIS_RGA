@@ -1,0 +1,27 @@
+#!/bin/csh
+
+# Get input argument
+set i_batch = $1
+set banch_size = 10
+
+@ i = $banch_size * $i_batch
+
+# Define include paths
+set include_path1 = "/u/scigroup/cvmfs/hallb/clas12/sw/noarch/clas12-qadb/3.1.0/srcC/include/"
+set include_path2 = "/u/scigroup/cvmfs/hallb/clas12/sw/noarch/clas12-qadb/3.1.0/srcC/rapidjson/include"
+
+# Set source file
+set source_file = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/source/make_rec_unfold_matricies.cxx"
+
+# Load modules
+module use /scigroup/cvmfs/hallb/clas12/sw/modulefiles
+module load clas12root
+module load root
+
+# Run ROOT with constructed commands
+root << EOF
+.I $include_path1
+.I $include_path2
+.L $source_file
+make_rec_unfold_matricies($i, $banch_size)
+EOF
