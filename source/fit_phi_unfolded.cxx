@@ -1,11 +1,12 @@
 // File: make_phi_slices.C
-// Compile/run: root -l -b -q 'make_phi_slices.C("unfold_out.root","unfold_Bayes_iter1","phi_slices.root")'
-
+// Compile/run examples:
+//   root -l -b -q 'make_phi_slices.C("unfold_out.root","unfold_Bayes_iter1","phi_slices.root",0.0,16)'
+//   root -l -b -q 'fit_phi_slices.C("phi_slices.root","phi_fit_results.root","phi_fit_plots",0.0,16)'
+//   root -l -b -q 'fit_phi_unfolded.C("unfold_out.root","unfold_Bayes_iter1","phi_slices.root","phi_fit_results.root","phi_fit_plots",0.0,16)'
 
 // takes unfolded th2 (x axis is z-pt2-phi bins, y axis is x-Q2 bins)
-// splits it into (xq2,z,pt2) th1 with phi dependence. 
+// splits it into (xq2,z,pt2) th1 with phi dependence.
 // It is done in order to fit phi dependence on the next step
-
 
 #include "TFile.h"
 #include "TDirectory.h"
@@ -19,8 +20,9 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
-
-
+#include <limits>
+#include <algorithm>
+#include <vector>
 
 #include "TSystem.h"
 #include "TCanvas.h"
@@ -83,7 +85,7 @@ static TH2D* ReconstructFromSparseDir(TDirectory* d, const char* denseName="unfo
 static void SplitPhiHists(const TH2D* h2,
                           const char* outFile       = "phi_slices.root",
                           double      emptyEps      = 0.0,
-                          int         max_ix        = N_xq2bins,
+                          int         max_ix        = 16, // cap xQ2 to 16 by default
                           int         nZ            = N_Zbins,
                           int         nPt           = N_pTbins_with_overflow,
                           int         nPhi          = N_phiTrbins)
@@ -101,7 +103,7 @@ static void SplitPhiHists(const TH2D* h2,
          << "         Will clamp to available X bins.\n";
   }
   const int nx_limit = std::min(nx_have, nx_needed);
-  const int ny_limit = std::min(ny_have, max_ix); // cap Y by available xQ2 bins
+  const int ny_limit = std::min(ny_have, max_ix); // cap Y by available xQ2 bins and user limit (default 16)
 
   // Counters
   long long nCandidates  = 0; // total (xQ2,z,pT) combos visited
@@ -142,7 +144,7 @@ static void SplitPhiHists(const TH2D* h2,
         bool nonEmpty = false;
         for (int iph=1; iph<=nPhi; ++iph) {
           const int xbin = nPhi*j + iph;     // X holds (z⊗pT⊗φ)
-          if (xbin > nx_limit) break;     // truncated pack
+          if (xbin > nx_limit) break;        // truncated pack
 
           const double v = h2->GetBinContent(xbin, ixq2); // (X, Y)
           const double e = h2->GetBinError  (xbin, ixq2);
@@ -181,7 +183,7 @@ static void SplitPhiHists(const TH2D* h2,
 
 
 
-// Fit every phi histogram with p0*(1 + p1*cos(x) + p2*cos(2*x)) (x in degrees)
+// Fit every phi histogram with p0 + p1*cos(x) + p2*cos(2x)  (x in degrees)
 // and save: (1) per-hist PNGs in plotDir, (2) a ROOT file with a TTree(ix,iz,iPt,p0)
 // Fit every phi histogram only if it has >4 data points (non-empty bins)
 // Fit every phi histogram only if it has >4 data points (after skipping bins with v=0 & e=0)
@@ -189,11 +191,15 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
                     const char* outRootFile = "phi_fit_results.root",
                     const char* plotDir     = "phi_fit_plots",
                     double emptyEps         = 0.0,
-                    int max_ix              = N_xq2bins,
+                    int max_ix              = 16,              // cap to 16 by default
                     int nZ                  = N_Zbins,
                     int nPt                 = N_pTbins_with_overflow,
-                    int minPoints           = 5)
+                    int minPoints           = 4)
 {
+  // Cuts:
+  const double relUncMax = 0.90;  // drop if e/|v| > 90%
+  const double outlierK  = 1.9;   // drop if v > 1.9 × (histogram average)
+
   gSystem->mkdir(plotDir, /*recursive*/true);
 
   TFile fIn(inPhiFile, "READ");
@@ -204,7 +210,7 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 
   Int_t   out_ix=0, out_iz=0, out_iPt=0;
   Double_t out_p0=0.0;
-  TTree t("phi_fit_p0", "Fit results: p0 from p0*(1+p1*cos + p2*cos2)");
+  TTree t("phi_fit_p0", "Fit results: p0 from p0 + p1*cos + p2*cos2");
   t.Branch("ix",  &out_ix);
   t.Branch("iz",  &out_iz);
   t.Branch("iPt", &out_iPt);
@@ -231,21 +237,41 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
         TH1D* h = dynamic_cast<TH1D*>(dz->Get(hname));
         if (!h) { ++nMissing; continue; }
 
-        // Build a TGraphErrors of points where NOT (v==0 && e==0)
-        std::vector<double> x, y, ex, ey;
-        x.reserve(h->GetNbinsX()); y.reserve(h->GetNbinsX());
-        ex.reserve(h->GetNbinsX()); ey.reserve(h->GetNbinsX());
+        // Compute histogram average once (over all φ bins)
+        const int nBins = h->GetNbinsX();
+        const double histAvg = (nBins > 0) ? h->Integral(1, nBins) / nBins : 0.0;
 
-        for (int b=1; b<=h->GetNbinsX(); ++b) {
+        // Build a TGraphErrors of points (apply all cuts)
+        //  - skip bins with (v==0 && e==0) within emptyEps
+        //  - drop bins with relative uncertainty > relUncMax
+        //  - drop "outliers": v > outlierK × histogram average (only if histAvg > emptyEps)
+        std::vector<double> x, y, ex, ey;
+        x.reserve(nBins); y.reserve(nBins);
+        ex.reserve(nBins); ey.reserve(nBins);
+        std::vector<char> keep(nBins, 0); // mark bins kept for plotting
+
+        for (int b=1; b<=nBins; ++b) {
           const double v = h->GetBinContent(b);
           const double e = h->GetBinError(b);
+
           // skip bins with both 0 content AND 0 uncertainty (within emptyEps)
           if (std::fabs(v) <= emptyEps && std::fabs(e) <= emptyEps) continue;
+
+          // relative-uncertainty cut
+          const double denom  = std::fabs(v);
+          const double relErr = (denom > emptyEps)
+                                  ? std::fabs(e) / denom
+                                  : std::numeric_limits<double>::infinity();
+          if (relErr > relUncMax) continue;
+
+          // outlier cut vs histogram average
+          if (histAvg > emptyEps && v > outlierK * histAvg) continue;
 
           x.push_back(h->GetXaxis()->GetBinCenter(b));
           y.push_back(v);
           ex.push_back(0.0);   // φ-bin centers known precisely
-          ey.push_back(e);     // keep provided uncertainty (may be zero for some bins; that's fine)
+          ey.push_back(e);     // keep provided uncertainty
+          keep[b-1] = 1;       // kept for cleaned plotting
         }
 
         const int npts = static_cast<int>(x.size());
@@ -257,8 +283,8 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
         gr.GetXaxis()->SetTitle("#phi_{Trento} [deg]");
         gr.GetYaxis()->SetTitle("Unfolded counts");
 
-        // Reasonable initial guesses
-        const double avg = (h->GetNbinsX()>0) ? h->Integral(1,h->GetNbinsX())/h->GetNbinsX() : 0.0;
+        // Initial guesses use the same histogram average
+        const double avg = std::max(0.0, histAvg);
         fphi.SetParameters(std::max(1e-12, avg), 0.0, 0.0); // [0]=p0, [1]=p1, [2]=p2
         fphi.SetParNames("p0","p1","p2");
         fphi.SetParLimits(0, 0.0, 1e12);
@@ -268,20 +294,23 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 
         // Prepare canvas and draw with autoscaling that accommodates the fit
         TCanvas c(Form("c_%s", hname.Data()), hname, 900, 700);
-        h->SetStats(0);
+
+        // Make a cleaned copy of the histogram that hides rejected bins
+        TH1D* hplot = (TH1D*)h->Clone(Form("%s_clean", hname.Data()));
+        hplot->SetStats(0);
+        for (int b=1; b<=nBins; ++b) {
+          if (!keep[b-1]) { hplot->SetBinContent(b, 0.0); hplot->SetBinError(b, 0.0); }
+        }
 
         // Compute y-maximum including the fitted curve
-        double fmax = 0.0;
-        // Use TF1::GetMaximum for current parameters in the domain [0,360]
-        fmax = fphi.GetMaximum(0.0, 360.0);
-        double ymax = std::max(h->GetMaximum(), fmax);
+        double fmax = fphi.GetMaximum(0.0, 360.0);
+        double ymax = std::max(hplot->GetMaximum(), fmax);
         if (!(ymax > 0)) ymax = 1.0;  // fallback to avoid a flat axis
-        h->SetMaximum(1.2 * ymax);    // leave some headroom
-        // Optional: keep non-negative axis
-        if (h->GetMinimum() < 0) h->SetMinimum(0);
+        hplot->SetMaximum(1.2 * ymax);    // leave some headroom
+        if (hplot->GetMinimum() < 0) hplot->SetMinimum(0);
 
-        // Draw histogram for axes + points/fit
-        h->Draw("E1");             // axes & error bars from histogram
+        // Draw cleaned histogram for axes + points/fit
+        hplot->Draw("E1");         // shows only kept bins
         gr.SetMarkerStyle(20);
         gr.SetMarkerSize(1.0);
         gr.Draw("P SAME");         // filtered points
@@ -290,6 +319,7 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 
         // Annotate
         TLatex lat; lat.SetNDC(); lat.SetTextSize(0.035);
+        lat.DrawLatex(0.15, 0.89, Form("histAvg = %.4g", histAvg));
         lat.DrawLatex(0.15, 0.85, Form("npts = %d", npts));
         lat.DrawLatex(0.15, 0.81, Form("p0 = %.4g", fphi.GetParameter(0)));
         lat.DrawLatex(0.15, 0.77, Form("p1 = %.4g", fphi.GetParameter(1)));
@@ -303,6 +333,9 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
         out_iPt = ipt;
         out_p0  = fphi.GetParameter(0);
         t.Fill();
+
+        // tidy
+        delete hplot;
 
         ++nFittedSaved;
       } // ipt
@@ -322,7 +355,8 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 void make_phi_slices(const char* inFile    = "unfold_out.root",
                      const char* sparseDir = "unfold_Bayes_iter1",
                      const char* outFile   = "phi_slices.root",
-                     double emptyEps       = 0.0)
+                     double emptyEps       = 0.0,
+                     int    max_ix         = 16)  // cap xQ2 to 16 by default
 {
   // Open and reconstruct TH2
   TFile fin(inFile, "READ");
@@ -333,28 +367,29 @@ void make_phi_slices(const char* inFile    = "unfold_out.root",
   std::unique_ptr<TH2D> h2(ReconstructFromSparseDir(d));
   if (!h2) { cerr << "ERROR: reconstruction failed\n"; return; }
 
-  // Split to φ histograms
+  // Split to φ histograms (respect max_ix)
   SplitPhiHists(h2.get(), outFile, emptyEps,
-                /*max_ix=*/N_xq2bins,
+                /*max_ix=*/max_ix,
                 /*nZ=*/N_Zbins,
                 /*nPt=*/N_pTbins_with_overflow,
                 /*nPhi=*/N_phiTrbins);
 }
 
 // Run the full chain: rebuild -> slice -> fit
-// 1) make_phi_slices(unfoldFile, sparseDir, phiSlicesFile, emptyEps)
-// 2) fit_phi_slices (phiSlicesFile, fitOutFile, plotDir, emptyEps, N_xq2bins, N_Zbins, N_pTbins_with_overflow)
+// 1) make_phi_slices(unfoldFile, sparseDir, phiSlicesFile, emptyEps, max_ix)
+// 2) fit_phi_slices (phiSlicesFile, fitOutFile, plotDir, emptyEps, max_ix, N_Zbins, N_pTbins_with_overflow)
 void fit_phi_unfolded(const char* unfoldFile    = "unfold_out.root",
                       const char* sparseDir     = "unfold_Bayes_iter1",
                       const char* phiSlicesFile = "phi_slices.root",
                       const char* fitOutFile    = "phi_fit_results.root",
                       const char* plotDir       = "phi_fit_plots",
-                      double       emptyEps     = 0.0)
+                      double       emptyEps     = 0.0,
+                      int          max_ix       = 16)  // cap to 16 by default
 {
-  // Build phi histograms from the unfolded sparse output
-  make_phi_slices(unfoldFile, sparseDir, phiSlicesFile, emptyEps);
+  // Build phi histograms from the unfolded sparse output (respect max_ix)
+  make_phi_slices(unfoldFile, sparseDir, phiSlicesFile, emptyEps, max_ix);
 
-  // Fit each phi histogram and save plots + p0 table
+  // Fit each phi histogram and save plots + p0 table (respect max_ix)
   fit_phi_slices(phiSlicesFile, fitOutFile, plotDir,
-                 emptyEps, N_xq2bins, N_Zbins, N_pTbins_with_overflow);
+                 emptyEps, max_ix, N_Zbins, N_pTbins_with_overflow);
 }

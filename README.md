@@ -34,6 +34,12 @@ jcache get /mss/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/clasdis
 
 4) split and fit, twice again:
 
+# SIM (rec_true)
+python run_split_and_fit_unif.py --subdir unfolding_rec_true
+
+
+OUTDATED:
+
   rm -rf  /lustre24/expphy/volatile/clas12/valerii/multi_pi0/pi0_mass_fits/unfolding_rec_*
   python run_split_and_fit.py
   
@@ -52,6 +58,11 @@ jcache get /mss/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/clasdis
 3) Fill Rec Data Hist and fit pi0
 
   python run_define_bin_migr_data.py
+
+# DATA
+python run_split_and_fit_unif.py --subdir unfolding_rec_data
+
+OUTDATED:  
   python run_split_and_fit_data.py
 
 5) construct response object and data vector + unfold it:

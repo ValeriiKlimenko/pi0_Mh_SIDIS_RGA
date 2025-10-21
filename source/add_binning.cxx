@@ -31,22 +31,13 @@ using ROOT::RDataFrame;
 using namespace RooFit;
 namespace fs = std::filesystem;
 
-
-
-
-
-
-
-
-
 // a flag that save TTree with z information instead of pi0 mass
 // the purpose of this to make sure that the bins propogate corretcly
 // we have (z,pt2,phi) -> liner binning -> many operations -> unfolding -> unliner to (z,pt2,phi) 
 // It is the check that we get the same bin at the very end
-bool run_z_bins_instead_of_pi0mass = false;
+//bool run_z_bins_instead_of_pi0mass = false;
 
 // this code is for SIDIS part only. There is another file that is used for DIS part.
-
 
 // Rec means processing for RESPONSE MATRIX, it is not supposed to be used for REC DATA. Use DATA for REC Data.
 // I know that it should have been called differentelly, I may fix it later.
@@ -64,7 +55,7 @@ static FileType parse_type_name(string s) {
   return FileType::Unknown;
 }
 
-void add_binning(const string full_file_path, string TYPE, bool is_true_gen_event) {
+void add_binning(const string full_file_path, string TYPE, bool is_true_gen_event, bool run_z_bins_instead_of_pi0mass = false) {
 
   // Type of dara file that is being analyzed
   FileType type;
@@ -115,9 +106,13 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
 
 
   string name_ending = "_out.root";
-  if (run_z_bins_instead_of_pi0mass) name_ending = "_out_z_instead_of.root";
   fs::path path_root_out = out_dir / (path_root_in.stem().string() + name_ending);
-
+  
+  if (run_z_bins_instead_of_pi0mass) {
+      name_ending = "_out_z_instead_of.root";
+      path_root_out = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/testing_binning";
+      path_root_out /= (path_root_in.stem().string() + name_ending);
+  }
 
 
   if (type != FileType::Rec && type != FileType::Data && type != FileType::Gen) std::cerr << "Wrong file type (not Rec, Data or Gen): " << ' ' << "\n";
@@ -194,6 +189,8 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
     //rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str()).Filter("g1match*g2match>0 && pi0_sidis_PT2m < 1.5").Filter("isEventINbins");
     
     //rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str()).Filter("isEventINbins").Filter("g1match*g2match>0 && pi0_sidis_PT2m < 1.5");//
+    // if there is no match then there is no generated information and the event cannot be used in reponse object Fill
+    // probably should be treated as an event without generted info. would be nice to see % of those events to make sure that it is neglig.
     rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str()).Filter("g1match*g2match>0 && pi0_sidis_PT2m < 1.5");//
     
     //rdf_after_the_cuts = rdf_after_the_cuts.Filter("isEventINbins");
@@ -210,7 +207,7 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
     // saved branches depends on dataset, this one is for rec data:
 
     if (!run_z_bins_instead_of_pi0mass) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});
-    if (run_z_bins_instead_of_pi0mass) rdf_after_the_cuts.Snapshot("h22_z", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","z"});
+    if (run_z_bins_instead_of_pi0mass ) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});//, "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
   }
   
   // Gen has unique set of cuts:

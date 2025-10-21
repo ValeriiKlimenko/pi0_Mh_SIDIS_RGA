@@ -78,6 +78,12 @@ if __name__ == "__main__":
         default="logs_add_binning",
         help="Directory to store screen logs.",
     )
+
+    parser.add_argument(
+        "--bin-test",
+        default=0,
+        help="fills z, pt2, phi in the output ttree.",
+    )
     args = parser.parse_args()
 
     # Normalize data type and pick directory/tag
@@ -98,6 +104,7 @@ if __name__ == "__main__":
 
     logs_dir = Path(args.logs_dir)
     is_true_gen_event = args.is_true_gen_event
+    is_bin_test = args.bin_test
 
     LD_EXPORT = (
         'export LD_LIBRARY_PATH='
@@ -121,7 +128,7 @@ if __name__ == "__main__":
 
         # Build the macro call (numeric flag unquoted). Pass the selected data tag.
         # Signature: add_binning.cxx("<file>", "<DATA|REC|GEN>", <is_true_gen_event>)
-        macro_call = f'source/add_binning.cxx("{file_path}", "{data_tag}", {is_true_gen_event})'
+        macro_call = f'source/add_binning.cxx("{file_path}", "{data_tag}", {is_true_gen_event}, {is_bin_test})'
         root_call = f"root -l -b -q {shlex.quote(macro_call)}"
 
         cmd = f"""

@@ -38,10 +38,6 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
     c12.db()->qadb_addQARequirement("TotalOutlier");
     c12.db()->qadb_addQARequirement("TerminalOutlier");
     c12.db()->qadb_addQARequirement("SectorLoss");
-    c12.db()->qadb_addQARequirement("LowLiveTime");
-    c12.db()->qadb_addQARequirement("Misc");
-
-
 
     //Particle Selection 
     c12.addExactPid(11,1);    //exactly 1 ele

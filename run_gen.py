@@ -8,7 +8,7 @@ from datetime import datetime
 
 # --- settings ---
 BASE_DIRS = [
-    #"/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
+    "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
     "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/Q2_1.5GeV/"
 ]
 FILE_GLOBS = ("*.hipo")

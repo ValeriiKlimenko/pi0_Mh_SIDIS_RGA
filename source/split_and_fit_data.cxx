@@ -8,6 +8,7 @@
 #include <iostream>
 #include <cmath>
 #include <system_error>
+#include <limits>
 
 #include "TFile.h"
 #include "TDirectory.h"
@@ -27,7 +28,8 @@ namespace fs = std::filesystem;
 // ---------- PNG saver ----------
 void SaveHistPNG(TH1* h, const std::string& outdir) {
     if (!h) return;
-    fs::create_directories(outdir);
+    std::error_code ec;
+    fs::create_directories(outdir, ec);
 
     gStyle->SetOptFit(111); // show fit box
 
@@ -42,12 +44,26 @@ void SaveHistPNG(TH1* h, const std::string& outdir) {
     leg.SetBorderSize(0);
     leg.SetFillStyle(0);
     leg.AddEntry(h, h->GetName(), "lep");
+
+    // Gaussian prefit
     if (auto* fcry = h->GetFunction((std::string("fcry_") + h->GetName()).c_str()))
         leg.AddEntry(fcry, "Gaussian prefit", "l");
-    if (auto* bkg  = h->GetFunction((std::string("bkg_") + h->GetName()).c_str()))
-        leg.AddEntry(bkg,  "Background (pol3)", "l");
-    if (auto* fc   = h->GetFunction((std::string("fc_") + h->GetName()).c_str()))
-        leg.AddEntry(fc,   "Gaus + pol3 (final)", "l");
+
+    // Background label auto: pol1 / pol2 / pol3
+    if (auto* bkg  = h->GetFunction((std::string("bkg_") + h->GetName()).c_str())) {
+        int npar = bkg->GetNpar(); // polN has N+1 params
+        int order = std::max(0, npar - 1);
+        std::string lbl = "Background (pol" + std::to_string(order) + ")";
+        leg.AddEntry(bkg, lbl.c_str(), "l");
+    }
+
+    // Combined label auto
+    if (auto* fc   = h->GetFunction((std::string("fc_") + h->GetName()).c_str())) {
+        int npar = fc->GetNpar();
+        int order = std::max(0, npar - 3);
+        std::string lbl = "Gaus + pol" + std::to_string(order) + " (final)";
+        leg.AddEntry(fc, lbl.c_str(), "l");
+    }
     leg.Draw();
 
     const std::string png = outdir + "/" + std::string(h->GetName()) + ".png";
@@ -138,10 +154,26 @@ void split_and_fit_data(const std::string& path_to_h3_file) {
     std::string out_pngs_folder =
         "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/pi0_mass_fits/" +
         in_path.parent_path().filename().string() + '/';
+
+    std::string out_pngs_failed_folder = out_pngs_folder + "failed/";   // failed fits & non-empty skips
+    std::string out_pngs_nopeak_folder = out_pngs_folder + "no_peak/";  // skipped due to no π0 peak (requested)
+
     std::error_code ec;
     fs::create_directories(out_pngs_folder, ec);
     if (ec) {
         std::cerr << "Failed to create directory " << out_pngs_folder
+                  << ": " << ec.message() << '\n';
+    }
+    ec.clear();
+    fs::create_directories(out_pngs_failed_folder, ec);
+    if (ec) {
+        std::cerr << "Failed to create directory " << out_pngs_failed_folder
+                  << ": " << ec.message() << '\n';
+    }
+    ec.clear();
+    fs::create_directories(out_pngs_nopeak_folder, ec);
+    if (ec) {
+        std::cerr << "Failed to create directory " << out_pngs_nopeak_folder
                   << ": " << ec.message() << '\n';
     }
 
@@ -161,27 +193,60 @@ void split_and_fit_data(const std::string& path_to_h3_file) {
 
     // Slice along Z and fit each (x,y) slice
     auto slices = makeZSlices(h3);
-
-    int png_counter = 0;
+    
+    int png_counter   = 0;
+    int failed_count  = 0;
+    //constexpr int kMaxFails = 40;
+    constexpr int kMaxFails = std::numeric_limits<int>::max();
+    
     for (auto& s : slices) {
         if (!s.h) continue;
 
-        // quick stat filter
-        if (SkipHist_lowStat(s.h.get())) continue;
+        // ----- precheck (empty / low-stat / no-peak etc.) -----
+        SkipDecision dec = PrecheckHistogram(s.h.get());
+        if (dec.skip) {
+            std::cerr << "[skip] " << s.h->GetName() << " — " << dec.reason << '\n';
 
-        auto [nPions, errPions] = GetN_pions(s.h.get());
-        if (nPions < 0 || errPions < 0) continue;
-
-        out_nPions        = nPions;
-        out_errPions      = errPions;
+            // Route “no peak near 0.133” to no_peak/ and do NOT count toward failed limit
+            if (dec.is_no_peak) {
+                SaveHistPNG(s.h.get(), out_pngs_nopeak_folder);
+            } else if (!dec.is_empty) {
+                // low-stat / small-but-nonempty etc. -> failed/
+                SaveHistPNG(s.h.get(), out_pngs_failed_folder);
+                ++failed_count;
+                if (failed_count >= kMaxFails) {
+                    std::cerr << "[split_and_fit_data] Reached " << kMaxFails
+                              << " failed/low-stat fits. Aborting loop.\n";
+                    break;
+                }
+            }
+            continue;
+        }
+    
+        // ----- fit -----
+        FitResult fr = FitPi0Mass(s.h.get());
+        if (!fr.ok) {
+            std::cerr << "[failed fit] " << s.h->GetName() << " — " << fr.reason << '\n';
+            SaveHistPNG(s.h.get(), out_pngs_failed_folder);
+            ++failed_count;
+            if (failed_count >= kMaxFails) {
+                std::cerr << "[split_and_fit_data] Reached " << kMaxFails
+                          << " failed/low-stat fits. Aborting loop.\n";
+                break;
+            }
+            continue;
+        }
+    
+        out_nPions        = fr.nPions;
+        out_errPions      = fr.errPions;
         out_xq2           = s.cx;     // X-axis center (bin_xBQ2_Valerii)
         out_zpt2phi       = s.cy;     // Y-axis center (zpt2phit_8x8x9)
         out_zpt2phi_bin   = s.iy;     // raw Y bin index
-
+    
         tout.Fill();
-
-        // save every 3rd PNG to limit I/O (adjust as you like)
-        if (png_counter % 5 == 0) SaveHistPNG(s.h.get(), out_pngs_folder);
+    
+        // save every 50th PNG to limit I/O 
+        if (png_counter % 50 == 0) SaveHistPNG(s.h.get(), out_pngs_folder);
         ++png_counter;
     }
 
