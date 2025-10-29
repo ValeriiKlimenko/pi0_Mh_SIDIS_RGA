@@ -1,31 +1,34 @@
 // File: add_zpt2phi_branches.C
 // Usage:
 //   root -l -b -q 'add_zpt2phi_branches.C("my_fitted.root")'
-//   root -l -b -q 'add_zpt2phi_branches.C("my_fitted.root","h22_fit","my_fitted_with_angles.root")'
+//   root -l -b -q 'add_zpt2phi_branches.C("my_fitted.root", "h22_fit", "my_fitted_with_angles.root")'
 
 #include <vector>
 #include <string>
 #include <stdexcept>
 #include <iostream>
+#include <iomanip>
 #include <cmath>
 
 #include "TFile.h"
 #include "TTree.h"
 
-// -------------------- binning constants (from your code) --------------------
+// -------------------- binning constants: MATCH zpt2phit_8x8x9 --------------------
 namespace bins {
-  constexpr int N_xq2bins = 16 + 3;                 // context only
-  constexpr int N_Zbins = 8;
-  constexpr int N_pTbins = 10;
-  constexpr int N_pTbins_with_overflow = N_pTbins + 1; // 11
-  constexpr int N_phiTrbins = 9;
+  constexpr int N_xq2bins = 16 + 3;   // context only
+  constexpr int N_Zbins   = 8;        // 8 z bins
+  constexpr int N_pTbins  = 11;       
+  constexpr int N_phiTrbins = 8;      // 9 phi bins
 
   inline const std::vector<double>& z_edges() {
+    // 8 bins => 9 edges
     static const std::vector<double> z = {0,0.2,0.3,0.4,0.5,0.6,0.7,0.8,1.0};
     return z;
   }
   inline const std::vector<double>& pt2_edges() {
-    static const std::vector<double> p = {0,0.05,0.1,0.15,0.2,0.3,0.4,0.5,0.65,0.8,1.0,1.5};
+    // Provide 8-bin pT^2 edges (adjust if your exact 8-bin scheme differs)
+    // This choice merges the higher pT^2 region into one bin [0.5,0.8].
+    static const std::vector<double> p = {0,0.05,0.1,0.15,0.2,0.3,0.4,0.5,0.65,0.8,1,1.5};
     return p;
   }
 }
@@ -41,18 +44,16 @@ inline bool decode_composite_1based(int comp, int& z_bin, int& pt2_bin, int& phi
   using namespace bins;
   if (comp < 1) return false;
 
-  // First peel off phi (1..N_phi)
+  // Packing: phi is fastest; then pt2; then z
   phi_bin = ((comp - 1) % N_phiTrbins) + 1;
-
-  // Remaining is z⊗pt2 (1..N_Zbins*N_pt2_over)
   const int zpt2_bin = ((comp - 1) / N_phiTrbins) + 1;
-  const int per_z = N_pTbins_with_overflow; // 11
+  const int per_z = N_pTbins; // 8
 
   z_bin   = ((zpt2_bin - 1) / per_z) + 1;   // 1..N_Zbins
-  pt2_bin = ((zpt2_bin - 1) % per_z) + 1;   // 1..11
+  pt2_bin = ((zpt2_bin - 1) % per_z) + 1;   // 1..N_pTbins
 
-  if (z_bin < 1 || z_bin > N_Zbins) return false;
-  if (pt2_bin < 1 || pt2_bin > per_z) return false;
+  if (z_bin   < 1 || z_bin   > N_Zbins)     return false;
+  if (pt2_bin < 1 || pt2_bin > per_z)       return false;
   if (phi_bin < 1 || phi_bin > N_phiTrbins) return false;
   return true;
 }
@@ -65,8 +66,8 @@ inline double phi_center_deg(int phi_bin) {
 
 // -------------------- main driver --------------------
 void check_phi_coverage_in_data(const char* in_file = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/unfolding_rec_data/h3_bin_xBQ2_Valerii__zpt2phit_8x8x9__pi0_m_fitted.root",
-                          const char* tree_name = "h22_fit",
-                          const char* out_file  = "data_cover.root")
+                                const char* tree_name = "h22_fit",
+                                const char* out_file  = "data_cover.root")
 {
   using namespace bins;
 
@@ -118,22 +119,60 @@ void check_phi_coverage_in_data(const char* in_file = "/w/hallb-scshelf2102/clas
 
   const auto& Z = z_edges();
   const auto& P = pt2_edges();
-  const int maxComp = N_phiTrbins * N_Zbins * N_pTbins_with_overflow;
+
+  // Sanity: edges must match declared binning
+  if ((int)Z.size() != N_Zbins + 1) {
+    throw std::runtime_error("z_edges size mismatch: expected " + std::to_string(N_Zbins+1));
+  }
+  if ((int)P.size() != N_pTbins + 1) {
+    throw std::runtime_error("pt2_edges size mismatch: expected " + std::to_string(N_pTbins+1));
+  }
+
+  const int maxComp = N_phiTrbins * N_Zbins * N_pTbins; // 9*8*8 = 576
+
+  // --- Counters
+  Long64_t total_valid = 0, total_nonzero = 0;
+  Long64_t total_failed = 0;
+  std::vector<Long64_t> per_xq2_valid   (N_xq2bins + 1, 0);
+  std::vector<Long64_t> per_xq2_nonzero (N_xq2bins + 1, 0);
+  std::vector<Long64_t> per_xq2_failed  (N_xq2bins + 1, 0);
+  Long64_t xq2_out_of_range_valid   = 0,
+           xq2_out_of_range_nonzero = 0,
+           xq2_out_of_range_failed  = 0;
 
   const Long64_t nent = tin->GetEntries();
   for (Long64_t ie = 0; ie < nent; ++ie) {
     tin->GetEntry(ie);
 
     // Prefer the raw Y-bin index if it’s in range; else use the composite value
-    int comp = (zpt2phi_hist_bin >= 1 && zpt2phi_hist_bin <= maxComp)
-                ? zpt2phi_hist_bin
-                : zpt2phi_comp;
+    int comp = zpt2phi_comp;
 
-    if (decode_composite_1based(comp, z_bin, pt2_bin, phi_bin)) {
+    bool ok = decode_composite_1based(comp, z_bin, pt2_bin, phi_bin);
+    if (ok) {
       z   = center_from_edges(Z, z_bin);
       pt2 = center_from_edges(P, pt2_bin);
       phi = phi_center_deg(phi_bin);
+
+      ++total_valid;
+      const bool nonzero = (nPions > 0.0);
+      if (nonzero) ++total_nonzero;
+
+      if (xq2bin >= 1 && xq2bin <= N_xq2bins) {
+        ++per_xq2_valid[xq2bin];
+        if (nonzero) ++per_xq2_nonzero[xq2bin];
+      } else {
+        ++xq2_out_of_range_valid;
+        if (nonzero) ++xq2_out_of_range_nonzero;
+      }
     } else {
+      ++total_failed;
+      if (xq2bin >= 1 && xq2bin <= N_xq2bins) {
+        ++per_xq2_failed[xq2bin];
+      } else {
+        ++xq2_out_of_range_failed;
+      }
+
+      // mark invalid decode in output branches
       z_bin = pt2_bin = phi_bin = -1;
       z = pt2 = phi = -999.0;
     }
@@ -147,7 +186,32 @@ void check_phi_coverage_in_data(const char* in_file = "/w/hallb-scshelf2102/clas
   fout.Close();
   fin.Close();
 
-  std::cout << "Wrote tree with original branches + raw indices (z_bin, pt2_bin, phi_bin) "
+  // -------------------- Summary printout --------------------
+  std::cout << "\n=== Coverage summary for file: " << in_file << " ===\n";
+  std::cout << "Entries read:                  " << nent << "\n";
+  std::cout << "Valid (decodable) points:      " << total_valid << "\n";
+  std::cout << "  of which nPions > 0:         " << total_nonzero << "\n";
+  std::cout << "Failed to decode:              " << total_failed << "\n";
+  std::cout << "Sanity (valid + failed):       " << (total_valid + total_failed) << "\n";
+
+  std::cout << "\nPer xQ2 bin (1.." << N_xq2bins
+            << ") => valid / (nPions>0) / failed\n";
+
+  for (int b = 1; b <= N_xq2bins; ++b) {
+    if (per_xq2_valid[b] == 0 && per_xq2_nonzero[b] == 0 && per_xq2_failed[b] == 0) continue;
+    std::cout << "  xQ2 bin " << std::setw(2) << b << ": "
+              << per_xq2_valid[b] << " / "
+              << per_xq2_nonzero[b] << " / "
+              << per_xq2_failed[b] << "\n";
+  }
+  if (xq2_out_of_range_valid > 0 || xq2_out_of_range_nonzero > 0 || xq2_out_of_range_failed > 0) {
+    std::cout << "  xQ2 out-of-range: "
+              << xq2_out_of_range_valid << " / "
+              << xq2_out_of_range_nonzero << " / "
+              << xq2_out_of_range_failed << "\n";
+  }
+
+  std::cout << "\nWrote tree with original branches + raw indices (z_bin, pt2_bin, phi_bin) "
                "and centers (z, pt2, phi) to:\n  "
-            << outpath << std::endl;
+            << outpath << "\n" << std::endl;
 }

@@ -30,6 +30,7 @@
 #include <system_error>
 #include <iomanip>
 #include <sstream>
+#include <map>              // NEW: per-xQ2 counters
 
 #include "TFile.h"
 #include "TDirectory.h"
@@ -49,7 +50,25 @@
 
 #include "fit_pi0_mass.cxx"  // SkipDecision, PrecheckHistogram, FitResult, FitPi0Mass
 
-constexpr int kMaxFails = std::numeric_limits<int>::max(); 
+
+
+// --- Z⊗pT2⊗phi binning constants from  scheme ---
+static constexpr int kNphi = 8;                  // N_phiTrbins
+static constexpr int kNpt2_with_overflow = 11;   // N_pTbins_with_overflow (= 10 + overflow)
+
+// Decode Y-axis combined bin (cy = 1..(N_zpt2*kNphi)) into (zbin, pt2bin, phibin)
+static inline void DecodeZpt2Phi(int cy, int& zbin, int& pt2bin, int& phibin) {
+    if (cy <= 0) { zbin = pt2bin = phibin = 0; return; }
+    const int zpt2 = ((cy - 1) / kNphi) + 1;   // 1..(N_Zbins * kNpt2_with_overflow)
+    phibin         = ((cy - 1) % kNphi) + 1;   // 1..kNphi
+    zbin           = ((zpt2 - 1) / kNpt2_with_overflow) + 1; // 1..N_Zbins (=8)
+    pt2bin         = ((zpt2 - 1) % kNpt2_with_overflow) + 1; // 1..kNpt2_with_overflow (=11)
+}
+
+
+
+
+constexpr int kMaxFails = std::numeric_limits<int>::max();
 
 namespace fs = std::filesystem;
 
@@ -58,7 +77,6 @@ namespace fs = std::filesystem;
 //   - Copies fc_*[0..2] → fcry_*[0..2]
 //   - Copies fc_*[3..]  → bkg_*[0..]
 // Also overlays a text box with σ from the synchronized gaussian.
-// ---------------------- PNG saver ----------------------
 // ---------------------- PNG saver ----------------------
 static void SaveHistPNG(TH1* h, const std::string& outdir) {
     if (!h) return;
@@ -92,10 +110,9 @@ static void SaveHistPNG(TH1* h, const std::string& outdir) {
     TCanvas c((std::string("c_") + hname).c_str(), "", 900, 700);
     c.SetGrid();
 
-
     gStyle->SetOptStat(0);
     h->SetStats(kFALSE);
-  
+
     h->SetLineWidth(2);
     h->SetMarkerStyle(20);
     h->SetMarkerSize(0.8);
@@ -125,10 +142,10 @@ static void SaveHistPNG(TH1* h, const std::string& outdir) {
     }
     leg.Draw();
 
-    // ---------- Draw ONLY σ from the final gaus(0) (BIG, HIGH-CONTRAST BOX) ----------
+    // ---------- Draw ONLY σ from the final gaus(0) ----------
     double sigma = std::numeric_limits<double>::quiet_NaN();
     if (fc && fc->GetNpar() >= 3) {
-        sigma = std::abs(fc->GetParameter(2));     // preferred: straight from final combined fit
+        sigma = std::abs(fc->GetParameter(2));     // preferred
     } else if (fgaus && fgaus->GetNpar() >= 3) {
         sigma = std::abs(fgaus->GetParameter(2));  // fallback
     }
@@ -137,8 +154,7 @@ static void SaveHistPNG(TH1* h, const std::string& outdir) {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(4) << "#sigma = " << sigma;
 
-        // Place on the *left* to avoid the legend (which is on the right)
-        // Bigger box, larger font, opaque white background for visibility
+        // Place left to avoid the legend
         TPaveText* pave = new TPaveText(0.12, 0.78, 0.50, 0.92, "NDC");
         pave->SetName((std::string("sigma_box_") + hname).c_str());
         pave->SetFillColorAlpha(kWhite, 0.90);
@@ -148,9 +164,9 @@ static void SaveHistPNG(TH1* h, const std::string& outdir) {
         pave->SetTextAlign(12);
         pave->SetTextFont(42);
         pave->SetTextColor(kBlack);
-        pave->SetTextSize(0.055);  // larger text
+        pave->SetTextSize(0.055);
         pave->AddText(ss.str().c_str());
-        pave->Draw();  // drawn last → on top
+        pave->Draw();
     }
 
     c.Modified();
@@ -158,8 +174,6 @@ static void SaveHistPNG(TH1* h, const std::string& outdir) {
     const std::string png = outdir + "/" + hname + ".png";
     c.SaveAs(png.c_str());
 }
-
-
 
 // ---------------------- slice helper ----------------------
 struct ZSlice {
@@ -249,6 +263,13 @@ static std::pair<int,int> second_third_int_ignoreQ(const std::string& s) {
     throw std::runtime_error("Not enough integers (ignoring Q* numbers) in: " + s);
 }
 
+// ---------------------- counters ----------------------
+struct FitCounters {
+    long long success{0};
+    long long failed{0};
+    long long skipped{0};
+};
+
 // ---------------------- unified driver ----------------------
 enum class Logic { Data, Sim };
 
@@ -289,10 +310,23 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
     // ====================== DATA path ======================
     if (isData) {
         int out_xq2{}, out_zpt2phi{}, out_zpt2phi_hist_bin{};
+      
+        // NEW: decoded bins from cy
+        int out_zbin{}, out_pt2bin{};
+
+        // Per-xQ2 counters
+        std::map<int, FitCounters> per_xq2;
+        long long total_success = 0, total_failed = 0, total_skipped = 0;
 
         tout.Branch("xq2bin",             &out_xq2);
         tout.Branch("z_pt2_phi_bin",      &out_zpt2phi);
         tout.Branch("z_pt2_phi_hist_bin", &out_zpt2phi_hist_bin);
+
+        // NEW: write decoded bins to tree
+        tout.Branch("zbin",               &out_zbin);
+        tout.Branch("pt2bin",             &out_pt2bin);
+
+      
         tout.Branch("nPions",             &out_nPions);
         tout.Branch("errPions",           &out_errPions);
 
@@ -310,13 +344,19 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
 
         auto slices = makeZSlices(h3);
         int png_counter   = 0;
-        int failed_count  = 0;
+        int failed_count  = 0; // global cap helper
 
         for (auto& s : slices) {
             if (!s.h) continue;
 
+            const int xq2_key = s.cx; // use X-axis integerized center as xQ2 key
+
             SkipDecision dec = PrecheckHistogram(s.h.get());
             if (dec.skip) {
+                // Count as SKIPPED (empty/low-stat/no-peak, etc.)
+                ++per_xq2[xq2_key].skipped;
+                ++total_skipped;
+
                 std::cerr << "[skip] " << s.h->GetName() << " — " << dec.reason << '\n';
                 if (dec.is_no_peak) {
                     SaveHistPNG(s.h.get(), out_pngs_nopeak_folder);
@@ -334,6 +374,8 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
 
             FitResult fr = FitPi0Mass(s.h.get());
             if (!fr.ok) {
+                ++per_xq2[xq2_key].failed;
+                ++total_failed;
                 std::cerr << "[failed fit] " << s.h->GetName() << " — " << fr.reason << '\n';
                 SaveHistPNG(s.h.get(), out_pngs_failed_folder);
                 ++failed_count;
@@ -345,17 +387,48 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
                 continue;
             }
 
+            // Success
+            ++per_xq2[xq2_key].success;
+            ++total_success;
+            
             out_nPions           = fr.nPions;
             out_errPions         = fr.errPions;
             out_xq2              = s.cx;
             out_zpt2phi          = s.cy;
             out_zpt2phi_hist_bin = s.iy;
-
+            
+            // NEW: decode (zbin, pt2bin, phibin) from cy
+            int phibin = 0;
+            DecodeZpt2Phi(out_zpt2phi, out_zbin, out_pt2bin, phibin);
+            
+            // Fill tree with zbin/pt2bin
             tout.Fill();
-
-            if (png_counter % png_every == 0) SaveHistPNG(s.h.get(), out_pngs_base);
-            ++png_counter;
+            
+            // NEW: save ALL successful φ fits, grouped by xq2 → (z,pt2)
+            {
+                const std::string xq2_dir   = out_pngs_base + "xq2_" + std::to_string(out_xq2) + "/";
+                const std::string zpt2_dir  = xq2_dir + "z" + std::to_string(out_zbin)
+                                              + "_pt2" + std::to_string(out_pt2bin) + "/";
+                SaveHistPNG(s.h.get(), zpt2_dir);
+            }
         }
+
+        // --- Summary (DATA) ---
+        std::cout << "\n=== Fit summary by xQ2 (DATA) ===\n";
+        std::cout << "xQ2    success   failed   skipped   total\n";
+        std::cout << "-----------------------------------------\n";
+        for (const auto& kv : per_xq2) {
+            const int x = kv.first;
+            const auto& c = kv.second;
+            std::cout << std::setw(3) << x << std::setw(11) << c.success
+                      << std::setw(9)  << c.failed  << std::setw(10) << c.skipped
+                      << std::setw(8)  << (c.success + c.failed + c.skipped) << "\n";
+        }
+        std::cout << "-----------------------------------------\n";
+        std::cout << "TOT" << std::setw(10) << total_success
+                  << std::setw(9)  << total_failed
+                  << std::setw(10) << total_skipped
+                  << std::setw(8)  << (total_success + total_failed + total_skipped) << "\n";
 
         fout.cd(); tout.Write(); fout.Close();
         std::cout << "Wrote: " << out_root << "\n";
@@ -386,7 +459,10 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
 
     const auto th3_names = list_TH3D_in_current_dir();
 
-    // Global fail cap for SIM (same as DATA)
+    // Per-xQ2 counters (reconstructed xQ2)
+    std::map<int, FitCounters> per_xq2;
+    long long total_success = 0, total_failed = 0, total_skipped = 0;
+
     int failed_count = 0;
 
     for (const auto& name : th3_names) {
@@ -427,9 +503,14 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
             }
             if (!s.h) continue;
 
+            const int xq2_key = rec_xq2;   // count by reconstructed xQ2
+
             // Precheck: save non-empty skips to failed/
             SkipDecision dec = PrecheckHistogram(s.h.get());
             if (dec.skip) {
+                ++per_xq2[xq2_key].skipped;
+                ++total_skipped;
+
                 if (!dec.is_empty) {
                     SaveHistPNG(s.h.get(), pngSubdirFailed);
                     ++failed_count;
@@ -445,6 +526,9 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
             // Fit: save failures to failed/
             FitResult fr = FitPi0Mass(s.h.get());
             if (!fr.ok) {
+                ++per_xq2[xq2_key].failed;
+                ++total_failed;
+
                 std::cerr << "[failed fit] " << s.h->GetName() << " — " << fr.reason << '\n';
                 SaveHistPNG(s.h.get(), pngSubdirFailed);
                 ++failed_count;
@@ -457,6 +541,9 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
             }
 
             // Success → fill tree, save "ok" PNGs sparsely
+            ++per_xq2[xq2_key].success;
+            ++total_success;
+
             out_nPions               = fr.nPions;
             out_errPions             = fr.errPions;
             out_zpt2phi              = static_cast<int>(std::lround(s.cx));
@@ -481,6 +568,23 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
         std::cout << rec_xq2 << " "  << gen_xq2 << " " << name << std::endl;
     }
 
+    // --- Summary (SIM, reconstructed xQ2) ---
+    std::cout << "\n=== Fit summary by xQ2 (SIM, reconstructed) ===\n";
+    std::cout << "xQ2    success   failed   skipped   total\n";
+    std::cout << "-----------------------------------------\n";
+    for (const auto& kv : per_xq2) {
+        const int x = kv.first;
+        const auto& c = kv.second;
+        std::cout << std::setw(3) << x << std::setw(11) << c.success
+                  << std::setw(9)  << c.failed  << std::setw(10) << c.skipped
+                  << std::setw(8)  << (c.success + c.failed + c.skipped) << "\n";
+    }
+    std::cout << "-----------------------------------------\n";
+    std::cout << "TOT" << std::setw(10) << total_success
+              << std::setw(9)  << total_failed
+              << std::setw(10) << total_skipped
+              << std::setw(8)  << (total_success + total_failed + total_skipped) << "\n";
+
     fout.cd();
     tout.Write();
     fout.Close();
@@ -496,7 +600,7 @@ void split_and_fit(const std::string& path_to_xQ2bin_th3d) {
     split_and_fit_unified(path_to_xQ2bin_th3d, Logic::Sim);
 }
 
-// Optional switch with explicit flag; png_every<=0 uses defaults (50 data, 2 sim)
+// Optional switch with explicit flag; png_every<=0 uses defaults (30 data, 10 sim)
 void split_and_fit_switch(const std::string& path, const std::string& logic, int png_every = -1) {
     if (logic == "data" || logic == "DATA")
         split_and_fit_unified(path, Logic::Data, png_every);

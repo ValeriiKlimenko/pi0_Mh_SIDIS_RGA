@@ -198,26 +198,26 @@ SkipDecision PrecheckHistogram(TH1D* h) {
   }
 
   // Keep your existing Nbins and ROI-height checks as in your current file
-  if (h->GetNbinsX() < 8) {
-    d.skip = true; d.is_empty = true; d.reason = "ignored: NbinsX < 8";
+  if (h->GetNbinsX() < 5) {
+    d.skip = true; d.is_empty = true; d.reason = "ignored: NbinsX < 5";
     return d;
   }
 
   {
-    // Skip if tallest bin in 0.10–0.15 is below 16
+    // Skip if tallest bin in 0.10–0.15 is below 6
     const int ib_lo = std::max(1, h->FindBin(0.10));
     const int ib_hi = std::min(h->GetNbinsX(), h->FindBin(0.15));
     double max_roi = 0.0;
     for (int i = ib_lo; i <= ib_hi; ++i) max_roi = std::max(max_roi, h->GetBinContent(i));
-    if (max_roi < 16.0) {
-      d.skip = true; d.is_empty = true; d.reason = "ignored: max[0.10,0.15] < 16";
+    if (max_roi < 6.0) {
+      d.skip = true; d.is_empty = true; d.reason = "ignored: max[0.10,0.15] < 6";
       return d;
     }
   }
 
   const double int_01015 = h->Integral(h->FindBin(0.10), h->FindBin(0.15));
-  if (int_01015 < 20.0) {
-    d.skip = true; d.is_empty = true; d.reason = "ignored: integral[0.10,0.15] < 20";
+  if (int_01015 < 10.0) {
+    d.skip = true; d.is_empty = true; d.reason = "ignored: integral[0.10,0.15] < 10";
     return d;
   }
 

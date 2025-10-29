@@ -332,6 +332,7 @@ void create_response_obj() {
   if (df_miss_ptr) {
     TH2D h_truth_like("h_truth_like","Truth-like;zpt2phit_8x8x9;bin_xBQ2_Valerii",
                       nZ, z_lo, z_hi, nX, x_lo, x_hi);
+    h_truth_like.SetDirectory(nullptr);
 
     df_miss_ptr->Foreach(
       [&](int z_truth_like, int x_truth_like){
@@ -345,6 +346,7 @@ void create_response_obj() {
 
     TH2D h_truth_minus_rec(h_truth_like);
     h_truth_minus_rec.SetName("h_truth_minus_rec_temp");
+    h_truth_minus_rec.SetDirectory(nullptr);
     subtract_common_bins(h_truth_minus_rec, h_check);
 
     for (int iz=1; iz<=h_truth_minus_rec.GetXaxis()->GetNbins(); ++iz) {
@@ -373,18 +375,22 @@ void create_response_obj() {
 
   spr.Write();
 
-  // Optional: write dense migration if feasible
-  const Long64_t nm = 1LL * nZ * nX;
-  const Long64_t nt = nm;
-  const long double bytesF = 4.0L * nm * nt;
-  const long double ioCap  = 1.073741822e9L / 1.2; // ~1 GB limit (uncompressed)
-  if (bytesF < ioCap) {
+  // Optional: write dense migration if truly tiny. Otherwise rely on resp_sparse.
+  const long long nm = 1LL * nZ * nX;
+  std::cout << "nZ=" << nZ << " nX=" << nX << " nm=" << nm << "\n";
+  
+  // If nm is big, skip the dense matrix entirely.
+  const long long max_nm_for_dense = 4000; // 4000x4000 ~ 16M bins → comfortably < 1 GiB even with some overhead
+  if (nm > max_nm_for_dense) {
+    Warning("create_response_obj",
+            "Skipping dense migration (nm=%lld → %lldx%lld bins). Using resp_sparse only.",
+            nm, nm, nm);
+  } else {
+    // If you insist on writing it when small:
     TH2F h_migF("h_response_migration_f",";irec;itruth",
                 (Int_t)nm, -0.5, (double)nm-0.5,
-                (Int_t)nt, -0.5, (double)nt-0.5);
-    h_migF.Sumw2(true);
-
-    // Refill from spr
+                (Int_t)nm, -0.5, (double)nm-0.5);
+    // Do NOT call Sumw2 here—keep it tiny.
     UInt_t irec2=0, itruth2=0; Float_t w2=0.f;
     spr.SetBranchAddress("irec",   &irec2);
     spr.SetBranchAddress("itruth", &itruth2);
@@ -394,9 +400,8 @@ void create_response_obj() {
       h_migF.Fill((double)irec2 + 0.5, (double)itruth2 + 0.5, (double)w2);
     }
     h_migF.Write();
-  } else {
-    Warning("create_response_obj","Migration too large to write as a single TH2F safely; relying on TTree storage only.");
   }
+
 
   fout.Write();
   fout.Close();

@@ -25,12 +25,12 @@ void define_bin_migr_hists(const std::string& dir,
                            const std::string& tree    = "h22",
                            int nx                     = 80,
                            int ny                     = 80,
-                           int nz                     = 60)
+                           int nz                     = 40)
 {
   // Flush std::cout on each << so messages show even if something dies mid-run
   std::cout.setf(std::ios::unitbuf);
 
-  ROOT::EnableImplicitMT(3);
+  //ROOT::EnableImplicitMT(3);
 
   const std::string xCol = "zpt2phit_8x8x9";
   const std::string yCol = "zpt2phit_8x8x9m";

@@ -644,202 +644,7 @@ enum sampleType {
   unf = 6
 };
 
-void check_input_run_unf(const sampleType type, const int sPoint){
-     if (type == sampleType::data || type == sampleType::dis){
-     if (sPoint%50 != 0 || sPoint < 0) throw out_of_range("start point for data-like files should 50*n where n is [0,3]");
- }
- if (type == sampleType::gen || type == sampleType::rec || type == sampleType::binning_initial || type == sampleType::binning_filling){
-     if (sPoint%30 != 0 || sPoint < 0) throw out_of_range("start point for MC-like or binning files should 30*n where n is [0,7]");
- }
 
-    cout<<"File type:";
-    
-switch(type) {
-  case sampleType::data:
-    cout<<" Data"<<endl;
-    break;
-  case sampleType::dis:
-    cout<<" dis"<<endl;
-    break;
-  case sampleType::gen:
-    cout<<" gen"<<endl;
-    break;
-  case sampleType::rec:
-    cout<<" rec"<<endl;
-    break;
-  case sampleType::binning_initial:
-    cout<<" binning_initial"<<endl;
-    break;
-  case sampleType::binning_filling:
-    cout<<" binning_filling"<<endl;
-    break;
-    case sampleType::unf:
-    cout<<" unfolding files"<<endl;
-    break;
-  default:
-    throw out_of_range("wrong type of files");
-}
-}
-
-//////////////////////////////////////// Data reading: /////////////////////////////////////
-
-vector<string> GetDATA_filePaths(const sampleType type){
-
-  if (type == sampleType::data || type == sampleType::dis){
-  
-  //Data : 174 files, Rec and Gen 220 files
-  vector <string> dataFile, disFile;  
-  //Data files
-  string prefixData = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v2/files/data_f2018_";
-  string prefixDis  = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v2/files/dis_f2018_";
-
-  ifstream infile("path_to_files/pass2_nSidis.dat");
-  string line;
-  while(getline(infile, line)){
-    TString instr = (TString)line;
-    instr.ReplaceAll("nSidis_", "");
-    instr.ReplaceAll(".hipo", ".root");
-    TString dataName = Form("%s%s", prefixData.c_str(), instr.Data());
-    TString disName  = Form("%s%s", prefixDis.c_str(), instr.Data());
-    dataFile.push_back(dataName.Data());
-    disFile.push_back(disName.Data());
-
-  }
-  infile.close();
-  return type == sampleType::dis ? disFile : dataFile;
-  }
-  //throw out_of_range("wrong input type DATA");
-  return {};
-};
-  
-//////////////////////////////////////// MC reading: /////////////////////////////////////
-  
-vector<string> GetMC_filePaths(const sampleType type){
-
-  if (type == sampleType::rec || type == sampleType::gen || type == sampleType::binning_initial){
-  
-    //Rec : 220 files (More now)
-    vector <string> mcRecFile, mcGenFile;
-    
-    //MC Files
-    string prefixRec = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v2/files/rec_f2018_";
-    string prefixGen = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v2/files/gen_f2018_";
-
-    
-    ifstream infile2("path_to_files/nSidis_files_mc_rec.txt");
-    string line2;
-    while(getline(infile2, line2)){
-      TString instr = (TString)line2;
-      instr.ReplaceAll(" /cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/", "");
-      instr.ReplaceAll(".hipo", "");
-      TString recName = Form("%s%s.root", prefixRec.c_str(), instr.Data());
-      mcRecFile.push_back(recName.Data());
-
-      TString genName = Form("%s%s.root", prefixGen.c_str(), instr.Data());
-      mcGenFile.push_back(genName.Data());
-    }
-    infile2.close();
-    return (type == sampleType::rec || type == sampleType::binning_initial) ? mcRecFile : mcGenFile;
-  }
-  //throw out_of_range("wrong input type SIM");
-  return {};
-};
-
-// low edge is included, the top edge is not included
-vector<string> getRecPaths(const int sFile, const int endFile){
-
-    vector<string> mcFiles;
-    string prefixRec = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/rec_f2018_";
-    ifstream infile2("path_to_files/nSidis_45_50nA.dat");
-    string line2;
-    int iFile = 0;
-    while(getline(infile2, line2)){
-      TString instr = (TString)line2;
-      if (iFile < sFile || iFile >= endFile) continue;
-      
-      instr.ReplaceAll(".hipo", "");
-      TString filePath = Form("%s%s.root", prefixRec.c_str(), instr.Data());
-      mcFiles.push_back(filePath.Data());
-      iFile++;
-    }
-    return mcFiles;
-    infile2.close();
-};
-
-
-///// Selecting the right files range: ////////
-void GetSubsetOfDataFiles(vector<string>&  dataFile, vector<string>& mcRecFile, 
-  vector<string>&  mcGenFile, vector<string>&  mcRUnFile, vector<string>&  disFile,
-  const int sPointData, const int sPoint, const int maxDataFiles, const int maxMCfiles,
-  // information on strating point of all the files are reuired later so it should be passed by link:
-  int& dstart,  int& sstart, int& gstart, int& rstart, int& mcint
-  ){
-
-  //cout<<"file vectors done"<<endl;
-  vector<string> gv, rv, dv, sv;
-  //For running the files, the files are broken into groups of files
-  //groups of 50 for data and dis, and groups of 30 for gen and rec. 
-  //Later functions open all of the files to sum them and/or fit distributions;
-
-  //Data files
-
-  
-  dstart = sPointData;
-  if (dstart< dataFile.size()){
-    for (int i = dstart ; i < dstart + 50 && i < maxDataFiles; i++){
-      dv.push_back(dataFile[i]);
-    }
-  }
-  dataFile = dv;
-
-
-  //DIS files
-  sstart = sPointData;
-  if (sstart< disFile.size()){
-    for (int i = sstart ; i < sstart + 50 && i < maxDataFiles; i++){
-      sv.push_back(disFile[i]);
-    }
-  }
-  disFile = sv;
-
-//cout << "before DECONV" << endl;
-  
-  //Rec from Unfold matrix files check that reading is correct
-  mcint = sPoint;
-  //string filePath = "files/";
-  for (int i = 0; i < maxMCfiles; i+=30){
-    TString rname = Form("%spi0_rec_unfold_event_%d.root", filePath_IN.c_str(), i);
-    cout << "i:"<<rname.Data()<< endl;
-    rv.push_back(rname.Data());
-  }
-  mcRUnFile.clear();
-  mcRUnFile.push_back(rv[mcint/30]);
-
-//cout << "before GEN" << endl;
-  
-  //Gen files
-  gstart = sPoint;
-  if (gstart< mcGenFile.size()){
-    for (int i = gstart; i < gstart + 30 && i < maxMCfiles; i++){
-      gv.push_back(mcGenFile[i]);
-    }
-  }
-  mcGenFile = gv;
-  
-//cout << "before REC" << endl;
-
-  //Rec files
-  rstart = sPoint; rv.clear();
-  if (rstart< mcRecFile.size()){
-    for (int i = rstart; i < rstart + 30 && i < maxMCfiles; i++){
-      rv.push_back(mcRecFile[i]);
-    }
-  }
-  mcRecFile = rv;
-
-  cout << " N of each type of files:"<<'\n' << "data, dis, UNF, gen, rec"<<endl;
-  cout<<dataFile.size()<<", "<<disFile.size()<<", "<<mcRUnFile.size()<<", "<<mcGenFile.size()<<", "<<mcRecFile.size()<<endl;
-};
 
 //////////////////////////////////////// List of cuts: /////////////////////////////////////
 string GetMainCuts(bool isMC){
@@ -1008,6 +813,7 @@ auto cut_PCAL_fid( double &lw_1,  double &lv_1,  double &lu_1,
                 return false;
         }
 
+  
     // MISSING ELEMENTS:
             switch (sec) {
                 case 1:
@@ -1046,6 +852,7 @@ auto cut_PCAL_fid( double &lw_1,  double &lv_1,  double &lu_1,
                 default:
                     break;
             }
+
         return true;
         
 }

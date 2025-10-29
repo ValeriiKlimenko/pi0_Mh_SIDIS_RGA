@@ -42,7 +42,7 @@
 static void EnableMT_default(int nthreads = 3) {
   // Unbuffer stdout so progress prints even if something dies mid-run.
   std::cout.setf(std::ios::unitbuf);
-  ROOT::EnableImplicitMT(nthreads);
+  //ROOT::EnableImplicitMT(nthreads);
 }
 
 // ----- Data helper: list files that actually have the requested TTree -----
@@ -95,7 +95,7 @@ void define_bin_migr_hists(const std::string& dir,
                            const std::string& tree    = "h22",
                            int nx                     = 80,
                            int ny                     = 80,
-                           int nz                     = 60) {
+                           int nz                     = 40) {
   EnableMT_default(3);
 
   // Column names

@@ -207,7 +207,7 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
     // saved branches depends on dataset, this one is for rec data:
 
     if (!run_z_bins_instead_of_pi0mass) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});
-    if (run_z_bins_instead_of_pi0mass ) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});//, "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
+    if (run_z_bins_instead_of_pi0mass ) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m", "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
   }
   
   // Gen has unique set of cuts:
