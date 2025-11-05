@@ -183,7 +183,7 @@ void define_bin_migr_hists(const std::string& dir,
 
     int written = 0;
     for (auto &p : kv.second) {
-      if (p.h3->GetEntries() <= 10) continue; // keep only >10
+      if (p.h3->GetEntries() <= 3) continue; // keep only >3
       p.h3->Write();
       ++written;
       ++totalWritten;

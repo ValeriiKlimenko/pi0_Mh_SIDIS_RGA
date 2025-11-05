@@ -194,7 +194,7 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
                     int max_ix              = 16,              // cap to 16 by default
                     int nZ                  = N_Zbins,
                     int nPt                 = N_pTbins_with_overflow,
-                    int minPoints           = 4)
+                    int minPoints           = 3)
 {
   // Cuts:
   const double relUncMax = 0.90;  // drop if e/|v| > 90%
@@ -262,10 +262,10 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
           const double relErr = (denom > emptyEps)
                                   ? std::fabs(e) / denom
                                   : std::numeric_limits<double>::infinity();
-          if (relErr > relUncMax) continue;
+          //if (relErr > relUncMax) continue;
 
           // outlier cut vs histogram average
-          if (histAvg > emptyEps && v > outlierK * histAvg) continue;
+          //if (histAvg > emptyEps && v > outlierK * histAvg) continue;
 
           x.push_back(h->GetXaxis()->GetBinCenter(b));
           y.push_back(v);
@@ -352,7 +352,7 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 
 
 // -------------- Convenience driver ----------------------------
-void make_phi_slices(const char* inFile    = "unfold_out.root",
+void make_phi_slices(const char* inFile    = "",
                      const char* sparseDir = "unfold_Bayes_iter1",
                      const char* outFile   = "phi_slices.root",
                      double emptyEps       = 0.0,
@@ -378,7 +378,7 @@ void make_phi_slices(const char* inFile    = "unfold_out.root",
 // Run the full chain: rebuild -> slice -> fit
 // 1) make_phi_slices(unfoldFile, sparseDir, phiSlicesFile, emptyEps, max_ix)
 // 2) fit_phi_slices (phiSlicesFile, fitOutFile, plotDir, emptyEps, max_ix, N_Zbins, N_pTbins_with_overflow)
-void fit_phi_unfolded(const char* unfoldFile    = "unfold_out.root",
+void fit_phi_unfolded(const char* unfoldFile    = "",
                       const char* sparseDir     = "unfold_Bayes_iter1",
                       const char* phiSlicesFile = "phi_slices.root",
                       const char* fitOutFile    = "phi_fit_results.root",

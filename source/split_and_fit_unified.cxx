@@ -48,9 +48,13 @@
 #include "TAxis.h"
 #include "TPaveText.h"
 
+#include "TSystem.h"
+#include "TLatex.h"
+#include "TPad.h"
+#include "TROOT.h"
+
 #include "fit_pi0_mass.cxx"  // SkipDecision, PrecheckHistogram, FitResult, FitPi0Mass
-
-
+#include "binning_params.cxx"  
 
 // --- Z⊗pT2⊗phi binning constants from  scheme ---
 static constexpr int kNphi = 8;                  // N_phiTrbins
