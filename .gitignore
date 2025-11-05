@@ -19,3 +19,9 @@ path_to_files/.ipynb_checkpoints/
 source/.ipynb_checkpoints/
 testing_unfolding/.ipynb_checkpoints/
 testing_unfolding/zpt2_compare.pdf
+testing.ipynb
+aclic_build/
+*.so
+*.pcm
+*_ACLiC_*.*
+*_ACLiC_dict.*

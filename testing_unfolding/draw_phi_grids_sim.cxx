@@ -129,18 +129,6 @@ void draw_phi_grids_sim_impl(const std::vector<std::string>& files,
 
   for (int xq2 : xq2_seen) {
     // find y-max across all subpads for this xq2 to unify scales
-    double yMax = 0.0;
-    for (int z=1; z<=bins::N_Zbins; ++z) {
-      for (int p=1; p<=bins::N_pTbins; ++p) {
-        const auto it = agg[xq2].find({z,p});
-        if (it == agg[xq2].end()) continue;
-        const Cell& c = it->second;
-        for (int ip=0; ip<bins::N_phi_bins; ++ip) {
-          if (c.has[ip]) yMax = std::max(yMax, c.y[ip]);
-        }
-      }
-    }
-    if (yMax <= 0) yMax = 1.0;
 
     const int NX = bins::N_pTbins;
     const int NY = bins::N_Zbins;
@@ -156,83 +144,91 @@ void draw_phi_grids_sim_impl(const std::vector<std::string>& files,
     // Labels helpers
     TLatex lat; lat.SetNDC(); lat.SetTextSize(0.05);
 
-    for (int row=1; row<=NY; ++row) {
-      const int zbin = row;          // top row = zbin 1 (you can flip if preferred)
-      const double zc = bins::center_from_edges(zE, zbin);
+for (int row=1; row<=NY; ++row) {
+  const int zbin = row;          // top row = zbin 1 (flip if desired)
+  const double zc = bins::center_from_edges(zE, zbin);
 
-      for (int col=1; col<=NX; ++col) {
-        const int padIdx = (row-1)*NX + col;
-        c->cd(padIdx);
-        gPad->SetMargin(0.12, 0.02, 0.18, 0.05);
+  for (int col=1; col<=NX; ++col) {
+    const int padIdx = (row-1)*NX + col;
+    c->cd(padIdx);
+    gPad->SetMargin(0.12, 0.02, 0.18, 0.05);
 
-        const int pt2bin = col;
-        const double pt2c = bins::center_from_edges(pE, pt2bin);
+    const int pt2bin = col;
+    const double pt2c = bins::center_from_edges(pE, pt2bin);
 
-        // Frame (common axes)
-        TH1F* frame = new TH1F(Form("frm_%d_%d_%d_%s", xq2, zbin, pt2bin, useGen?"g":"r"),
-                               "", 100, 0.0, 360.0);
-        frame->SetDirectory(nullptr);
-        frame->SetMinimum(0.0);
-        frame->SetMaximum(yMax*1.15);
-        frame->GetXaxis()->SetTitle("#phi [deg]");
-        frame->GetYaxis()->SetTitle("n_{#pi^{0}}");
-        frame->GetXaxis()->SetLabelSize(0.06);
-        frame->GetYaxis()->SetLabelSize(0.06);
-        frame->GetXaxis()->SetTitleSize(0.07);
-        frame->GetYaxis()->SetTitleSize(0.07);
-        frame->GetYaxis()->SetTitleOffset(0.6);
-        frame->GetXaxis()->SetTitleOffset(0.9);
-        // show fewer axis titles to reduce clutter
-        if (row != NY) frame->GetXaxis()->SetTitle("");
-        if (col != 1 ) frame->GetYaxis()->SetTitle("");
+    // ---- per-cell data + local max (CHANGED) ----
+    auto it = agg[xq2].find({zbin, pt2bin});
+    const Cell* cellPtr = (it == agg[xq2].end()) ? nullptr : &it->second;
 
-        frame->Draw("AXIS");
-
-        // Fetch cell data
-        auto it = agg[xq2].find({zbin, pt2bin});
-        if (it == agg[xq2].end()) {
-          lat.SetTextSize(0.06);
-          lat.DrawLatex(0.18, 0.80, Form("z=%.2f", zc));
-          lat.DrawLatex(0.18, 0.68, Form("p_{T}^{2}=%.3g", pt2c));
-          lat.SetTextSize(0.07);
-          lat.DrawLatex(0.25, 0.45, "no data");
-          continue;
-        }
-
-        const Cell& cell = it->second;
-
-        // Build graph: only keep points that exist
-        std::vector<double> vx, vy, vex, vey;
-        vx.reserve(bins::N_phi_bins);
-        vy.reserve(bins::N_phi_bins);
-        vex.reserve(bins::N_phi_bins);
-        vey.reserve(bins::N_phi_bins);
-
-        for (int ip=0; ip<bins::N_phi_bins; ++ip) {
-          if (!cell.has[ip]) continue;
-          const int phi_bin = ip+1;
-          vx.push_back(bins::phi_center_deg(phi_bin));
-          vy.push_back(cell.y[ip]);
-          vex.push_back(0.0);
-          vey.push_back(std::sqrt(cell.ey2[ip]));
-        }
-
-        if (!vx.empty()) {
-          TGraphErrors* gr = new TGraphErrors((int)vx.size(),
-                                              vx.data(), vy.data(),
-                                              vex.data(), vey.data());
-          gr->SetMarkerStyle(20);
-          gr->SetMarkerSize(0.9);
-          gr->SetLineWidth(2);
-          gr->Draw("P SAME");
-        }
-
-        // cell label (top-left)
-        lat.SetTextSize(0.055);
-        lat.DrawLatex(0.15, 0.86, Form("z=%.2f", zc));
-        lat.DrawLatex(0.15, 0.74, Form("p_{T}^{2}=%.3g", pt2c));
+    double localMax = 0.0;
+    if (cellPtr) {
+      for (int ip=0; ip<bins::N_phi_bins; ++ip) {
+        if (cellPtr->has[ip]) localMax = std::max(localMax, cellPtr->y[ip]);
       }
     }
+    if (localMax <= 0) localMax = 1.0;  // robust default for empty/zero cells
+
+    // Frame (now uses localMax instead of global)
+    TH1F* frame = new TH1F(Form("frm_%d_%d_%d_%s", xq2, zbin, pt2bin, useGen?"g":"r"),
+                           "", 100, 0.0, 360.0);
+    frame->SetDirectory(nullptr);
+    frame->SetMinimum(0.0);
+    frame->SetMaximum(localMax * 1.15);
+    frame->GetXaxis()->SetTitle("#phi [deg]");
+    frame->GetYaxis()->SetTitle("n_{#pi^{0}}");
+    frame->GetXaxis()->SetLabelSize(0.06);
+    frame->GetYaxis()->SetLabelSize(0.06);
+    frame->GetXaxis()->SetTitleSize(0.07);
+    frame->GetYaxis()->SetTitleSize(0.07);
+    frame->GetYaxis()->SetTitleOffset(0.6);
+    frame->GetXaxis()->SetTitleOffset(0.9);
+    if (row != NY) frame->GetXaxis()->SetTitle("");
+    if (col != 1 ) frame->GetYaxis()->SetTitle("");
+    frame->Draw("AXIS");
+
+    // No data? draw labels and continue
+    if (!cellPtr) {
+      TLatex lat; lat.SetNDC(); lat.SetTextSize(0.06);
+      lat.DrawLatex(0.18, 0.80, Form("z=%.2f", zc));
+      lat.DrawLatex(0.18, 0.68, Form("p_{T}^{2}=%.3g", pt2c));
+      lat.SetTextSize(0.07);
+      lat.DrawLatex(0.25, 0.45, "no data");
+      continue;
+    }
+
+    // Build graph (same as before)
+    std::vector<double> vx, vy, vex, vey;
+    vx.reserve(bins::N_phi_bins);
+    vy.reserve(bins::N_phi_bins);
+    vex.reserve(bins::N_phi_bins);
+    vey.reserve(bins::N_phi_bins);
+
+    for (int ip=0; ip<bins::N_phi_bins; ++ip) {
+      if (!cellPtr->has[ip]) continue;
+      const int phi_bin = ip+1;
+      vx.push_back(bins::phi_center_deg(phi_bin));
+      vy.push_back(cellPtr->y[ip]);
+      vex.push_back(0.0);
+      vey.push_back(std::sqrt(cellPtr->ey2[ip]));
+    }
+
+    if (!vx.empty()) {
+      TGraphErrors* gr = new TGraphErrors((int)vx.size(),
+                                          vx.data(), vy.data(),
+                                          vex.data(), vey.data());
+      gr->SetMarkerStyle(20);
+      gr->SetMarkerSize(0.9);
+      gr->SetLineWidth(2);
+      gr->Draw("P SAME");
+    }
+
+    // cell label (top-left)
+    TLatex lat; lat.SetNDC(); lat.SetTextSize(0.055);
+    lat.DrawLatex(0.15, 0.86, Form("z=%.2f", zc));
+    lat.DrawLatex(0.15, 0.74, Form("p_{T}^{2}=%.3g", pt2c));
+  }
+}
+
 
     // Big title on the whole canvas
     c->cd(0);
@@ -255,7 +251,7 @@ void draw_phi_grids_sim_impl(const std::vector<std::string>& files,
 }
 
 // -------------------- friendly entry point for ROOT -q --------------------
-void draw_phi_grids_sim(const char* commaSeparatedFiles = "",
+void draw_phi_grids_sim(const char* commaSeparatedFiles = "../unfolding_rec_true/h3_bin_xBQ2_Valerii_20_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_7_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_6_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_12_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_19_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_11_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_5_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_15_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_16_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_14_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_4_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_3_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_10_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_13_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_9_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_8_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_18_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_1_fitted.root,../unfolding_rec_true/h3_bin_xBQ2_Valerii_2_fitted.root",
                         const char* outDir = "phi_grids",
                         bool useGen = false)
 {

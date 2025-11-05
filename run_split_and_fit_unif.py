@@ -17,11 +17,11 @@ LOGS_DIR = Path("logs_split_and_fit")
 # ROOT env (same as your originals)
 LD_EXPORT = (
     'export LD_LIBRARY_PATH='
-    '"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.30.04/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.8.5/4.2.0/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.6/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/iguana/0.8.0/4.2.0/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.2.0/lib:'
+    '"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.8.6b/4.3.0/lib64:'
+    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.7/lib:'
+    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.36.04/lib:'
+    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/python/3.13.7/lib:'
+    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.3.0/lib:'
     '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:'
     '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:${LD_LIBRARY_PATH-}"'
 )
@@ -55,6 +55,23 @@ def parse_args():
         default=MAX_SCREENS,
         help="Maximum concurrent screen sessions.",
     )
+    ap.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path(__file__).resolve().parent,  # folder that contains ./source/
+        help="Working directory for the screen job; should contain 'source/'.",
+    )
+    ap.add_argument(
+        "--aclic-dir",
+        type=Path,
+        default=Path("aclic_build"),
+        help="Where to put ACLiC outputs (per job subfolder will be created here).",
+    )
+    ap.add_argument(
+        "--force-rebuild",
+        action="store_true",
+        help="Use '++' on .L to force rebuild of the macro.",
+    )
     return ap.parse_args()
 
 def screen_ls():
@@ -65,7 +82,7 @@ def screen_ls():
 
     sessions = {}
     for line in out.splitlines():
-        # lines look like: "    12345.name   (Detached)"
+        # lines like: "    12345.name   (Detached)"
         m = re.search(r"\s*(\d+)\.([^\s]+)\s+\(([^)]+)\)", line)
         if m:
             pid, name, status = int(m.group(1)), m.group(2), m.group(3)
@@ -115,32 +132,48 @@ if __name__ == "__main__":
             if p.is_file() and ("fitted" not in p.name.lower()) and (not has_negative.search(p.stem)):
                 rec_files.append(p.name)
 
+    project_root = args.project_root.resolve()
+    macro_path = (project_root / "source" / "split_and_fit_unified.cxx").resolve()
+
     for i_file, file in enumerate(sorted(rec_files)):
         # throttle concurrent sessions
         while len(screen_ls()) >= args.max_screens:
             time.sleep(POLL_SEC)
 
-        file_path = str(mypath / file)
+        file_path = str((mypath / file).resolve())
         name = f"{SCREEN_NAME}_{i_file:04d}"     # unique screen session
         log = LOGS_DIR / f"{name}.log"           # capture stdout/stderr
 
         # Escape any embedded quotes in the file path for the ROOT call
         file_for_root = file_path.replace('"', '\\"')
 
-        # We load the unified macro once then call the switch entry point.
-        #   split_and_fit_switch(path, "data"|"sim", png_every)
-        macro_cmd = (
-            f'source/split_and_fit_unified.cxx; '
-            f'split_and_fit_switch("{file_for_root}", "{logic}", {int(args.png_every)})'
+        # Unique ACLiC build dir per job to avoid collisions
+        build_dir = (project_root / args.aclic_dir / name).resolve()
+
+        # ROOT command lines
+        build_line = f'gSystem->SetBuildDir("{build_dir}", kTRUE)'
+        plus = "++" if args.force_rebuild else "+"
+        load_line = f'.L {macro_path}{plus}'
+        run_line  = f'split_and_fit_switch("{file_for_root}", "{logic}", {int(args.png_every)})'
+
+        # Ensure build dir exists before ROOT starts
+        mkdir_cmd = f'mkdir -p {shlex.quote(str(build_dir))}'
+
+        root_call = (
+            f"root -l -b -q "
+            f"-e {shlex.quote(build_line)} "
+            f"-e {shlex.quote(load_line)} "
+            f"-e {shlex.quote(run_line)}"
         )
-        root_call = f"root -l -b -q {shlex.quote(macro_cmd)}"
 
         cmd = f"""
         echo "Start: $(date)"
         {LD_EXPORT}
+        {mkdir_cmd}
         {root_call}
         echo "Done: $(date)"
         """
 
-        start_screen_session(name, cmd, log_path=log)
-        print(f"Launched {name}: {cmd}  (log: {log})")
+        # Run with project_root as working directory so relative paths (e.g. 'source/') are stable
+        start_screen_session(name, cmd, log_path=log, workdir=project_root)
+        print(f"Launched {name}: (cwd={project_root})  (log: {log})")

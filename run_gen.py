@@ -8,9 +8,10 @@ from datetime import datetime
 
 # --- settings ---
 BASE_DIRS = [
-    "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
+    #"/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
     "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/Q2_1.5GeV/"
 ]
+
 FILE_GLOBS = ("*.hipo")
 
 rootpath   = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/"
@@ -68,13 +69,14 @@ module_cmd = (
 
 # LD_LIBRARY_PATH inside each screen (prepends and keeps existing value)
 LD_EXPORT = (
-    'export LD_LIBRARY_PATH="/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.30.04/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.8.5/4.2.0/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.6/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/iguana/0.8.0/4.2.0/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.2.0/lib:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:'
-    '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:${LD_LIBRARY_PATH-}"'
+  'export LD_LIBRARY_PATH='
+  '"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.8.6b/4.3.0/lib64:'
+  '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.7/lib:'
+  '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.36.04/lib:'
+  '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/python/3.13.7/lib:'
+  '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.3.0/lib:'
+  '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:'
+  '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:${LD_LIBRARY_PATH-}"'
 )
 
 for base_dir, abs_path, rel_path in files:

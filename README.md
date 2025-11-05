@@ -40,33 +40,37 @@ python run_define_bin_migr.py --dir rec_fake/
  SIM (rec_true)
 python run_split_and_fit_unif.py --subdir unfolding_rec_true
 
- Outdated:
+# Outdated:
 
 rm -rf /lustre24/expphy/volatile/clas12/valerii/multi_pi0/pi0_mass_fits/unfolding_rec_*
 python run_split_and_fit.py
 
- Not used at the moment
+
+#Not used at the moment
+
 python run_split_and_fit.py --subdir unfolding_rec_fake
 
 
 # Data and Gen
-
 # 1. Add binning and apply the cuts:
 
   python run_add_binning.py --data-type Data
   python run_add_binning.py --data-type Gen
 
-# 2-3. Fill Rec Data Hist and fit pi0
+## 2-3. Fill Rec Data Hist and fit pi0
 
   python run_define_bin_migr_data.py
 
- DATA
+# new step: turn gen ttree into th3f xQ2_gen, z_pt2_phi_gen, nPions_Gen.
+  make_gen_binning_2D.cxx
+
+# DATA
   python run_split_and_fit_unif.py --subdir unfolding_rec_data
 
- Outdated:  
+# Outdated:  
   python run_split_and_fit_data.py
 
-# 4. construct response object and data vector + unfold it:
+## 4. construct response object and data vector + unfold it:
 
   run via root (.L):
   create_response_obj.cxx
@@ -83,14 +87,20 @@ python run_split_and_fit.py --subdir unfolding_rec_fake
 
 # Other:
 
+
 ## Quick housekeeping
 
 **Clean up detached GNU Screen sessions**
-```bash
+
 screen -ls | grep Detached | awk '{print $1}' | xargs -I {} screen -X -S {} quit
+=======
+# Other:
 
 testing:
 
 python run_add_binning.py --data-type Data --bin-test 1
 
+
 python test_binning.py --input_dir /lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/rec_true/
+
+```bash

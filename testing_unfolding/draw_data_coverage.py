@@ -12,7 +12,7 @@ import ROOT
 # ---------------- binning (match your analysis) ----------------
 N_ZBINS = 8
 N_PT2_BINS_WITH_OVERFLOW = 11  # 10 + overflow
-N_PHI = 9
+N_PHI = 8
 Z_EDGES  = [0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0]
 PT2_EDGES= [0, 0.05,0.1,0.15,0.2,0.3,0.4,0.5,0.65,0.8,1.0,1.5]
 
@@ -148,7 +148,7 @@ def draw_one_xq2(xq2v, binmap, outdir):
 
 def main():
     ap = argparse.ArgumentParser(description="Clean ROOT-only φ-plots (no grid artifacts).")
-    ap.add_argument("--rootfile", default="/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/data_cover.root")
+    ap.add_argument("--rootfile", default="/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/testing_unfolding/data_cover.root")
     ap.add_argument("--tree", default="h22_fit")
     ap.add_argument("--outdir", default="plots_phi_by_xq2_clean")
     ap.add_argument("--max_xq2", type=int, default=None)
