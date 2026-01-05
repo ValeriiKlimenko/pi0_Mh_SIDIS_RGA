@@ -23,7 +23,6 @@
 #include <string_view>
 #include <algorithm>
 
-
 #include "binning_params.cxx"
 #include "Dataframe.cxx"
 
@@ -43,7 +42,7 @@ namespace fs = std::filesystem;
 // I know that it should have been called differentelly, I may fix it later.
 
 
-enum class FileType {Data, Rec, Gen, Dis, Unknown};
+enum class FileType {Data, Rec, Gen, Dis_Data, Dis_Rec, Gen_Dis, Unknown};
 
 static FileType parse_type_name(string s) {
   auto lower = std::string(s);
@@ -51,49 +50,97 @@ static FileType parse_type_name(string s) {
   if (lower == "data") return FileType::Data;
   if (lower == "rec") return FileType::Rec;
   if (lower == "gen") return FileType::Gen;
-  if (lower == "dis") return FileType::Dis;
+  
+  if (lower == "dis_data") return FileType::Dis_Data;
+  if (lower == "dis_rec") return FileType::Dis_Rec;
+  // input the same as for Dis_Rec but different output:
+  if (lower == "dis_gen") return FileType::Gen_Dis;
   return FileType::Unknown;
 }
 
-void add_binning(const string full_file_path, string TYPE, bool is_true_gen_event, bool run_z_bins_instead_of_pi0mass = false) {
+void add_binning(const string full_file_path,
+                 string TYPE,
+                 bool is_true_gen_event,
+                 int mx_cut_mode,
+                 bool run_z_bins_instead_of_pi0mass /* = false */,
+                 bool is_elec_cut_on_gen = false,
+                 bool is_mc_parent_cuts = false,
+                 bool no_phi_binning = false) {
 
-  // Type of dara file that is being analyzed
+  // Type of data file that is being analyzed
   FileType type;
   type = parse_type_name(TYPE);
 
-  
+  // interpret mx_cut_mode
+  // 0 -> no cut (old remove_MX_cut == true)
+  // 1 -> cut at 1.0 (new)
+  // 2 -> cut at 1.5 (old "else" branch)
+  bool remove_MX_cut = (mx_cut_mode == 0);   // for any legacy logic that uses this
 
-  // zpPolyVec is globasl so MT causes satbility issues, the number of events with it ON and OFF are very different.
-  // it can be fixed since zpPolyVec does not contain actual events and only serves for bin determination. (by making a copy for each slot)
-  // however, since it is the only step of the analysis where it is used and it higly parralled (0.25 OSG submission per process)
-  // The net weight in the analysis chain is low and not worth the time investment for now.
-  
-  //ROOT::EnableImplicitMT(); // commented out for binning calculation 
-
-  ////////////////////////////////////////////////////////
-  ///// Input Args:
-  ////////////////////////////////////////////////////////
+  // no Mx cut should be applied to DIS sample. It just in case the same cut set is used for SIDIS and DIS.
+  if (type == FileType::Dis_Data || type == FileType::Dis_Rec || type == FileType::Gen_Dis) mx_cut_mode = 0;
 
 
-    fs::path path_root_in = fs::path(full_file_path);
-    fs::path dir = path_root_in.parent_path();
+  // ... whatever other setup you have ...
 
-    // set this however you like; using literal "rec" here
+  fs::path path_root_in = fs::path(full_file_path);
+  fs::path dir          = path_root_in.parent_path();
 
-    // it was codded before REC data was added so rec is referring to output folder
-    fs::path rec;
-    if (type == FileType::Rec){
-      if (is_true_gen_event) rec = "rec_true";
-      else  rec = "rec_fake";
+  fs::path rec;
+
+  if (type == FileType::Rec) {
+    if (mx_cut_mode == 0) {
+      // old remove_MX_cut == true
+      rec = "rec_noMxcut";
+    } else if (mx_cut_mode == 1) {
+      // same pattern as noMxcut, but for cut = 1
+      rec = "rec_Mxcut_1";
+    } else { // mx_cut_mode == 2 -> old "else" branch
+      if (is_true_gen_event) {
+        if (is_mc_parent_cuts) rec = "rec_match";
+        if (no_phi_binning) rec = "rec_no_phi";
+        if (!is_mc_parent_cuts && !no_phi_binning) rec = "rec_true";
+      }
+      else                   rec = "rec_fake";
     }
-  
-    if (type == FileType::Data){
-       rec = "rec_data";
-    }
+  }
 
-    if (type == FileType::Gen){
-       rec = "gen_binning";
+  if (type == FileType::Data) {
+    if (mx_cut_mode == 0) {
+      rec = "data_noMxcut";
+    } else if (mx_cut_mode == 1) {
+      rec = "data_Mxcut_1";
+    } else { // 1.5 cut, old else
+        if (no_phi_binning) rec = "data_no_phi";
+        else rec = "rec_data";
     }
+  }
+
+  if (type == FileType::Gen) {
+    if (mx_cut_mode == 0) {
+      rec = "gen_noMxcut";
+    } else if (mx_cut_mode == 1) {
+      rec = "gen_Mxcut_1";
+    } else { // 1.5 cut, old else
+      if (no_phi_binning) rec = "gen_binning_no_phi";
+      else rec = "gen_binning";
+    }
+    if (is_elec_cut_on_gen){
+      rec = "gen_sidis_goodElec";
+    }
+  }
+
+  if (type == FileType::Dis_Data) {
+      rec = "dis_data_added_binning";
+  }
+  
+  if (type == FileType::Dis_Rec) {
+      rec = "dis_rec_added_binning";
+  }
+  
+  if (type == FileType::Gen_Dis) {
+      rec = "dis_gen_added_binning";
+  }
 
     // ensure: <dir>/<rec>/<stem>/ exists
     fs::path out_dir = dir / rec;
@@ -115,13 +162,15 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
   }
 
 
-  if (type != FileType::Rec && type != FileType::Data && type != FileType::Gen) std::cerr << "Wrong file type (not Rec, Data or Gen): " << ' ' << "\n";
+  if (type != FileType::Rec && type != FileType::Data && type != FileType::Gen 
+            && type != FileType::Dis_Data && type != FileType::Dis_Rec && type != FileType::Gen_Dis) 
+                  std::cerr << "Wrong file type (not Rec, Data or Gen): " << ' ' << "\n";
 
   ////////////////////////////////////////////////////////
   ///// Read RDF:
   ////////////////////////////////////////////////////////
   
-  bool isMC =  type == FileType::Rec ? true : false;
+  bool isMC = (type == FileType::Rec || type == FileType::Dis_Rec || type == FileType::Gen || type == FileType::Gen_Dis);
 
   // Add the following columns ("xq2bin", "xq2bin_gen", "zpt2bin", "zpt2bin_gen", "MM")
   ROOT::RDataFrame df("h22", path_root_in.c_str());
@@ -130,14 +179,29 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
   ////////////////////////////////////////////////////////
   ///// Define columns:
   ////////////////////////////////////////////////////////
-  
+
+  // when it is applied to gen DIS all the columns (bin_xBQ2_Valerii, e_P) contains infromation on generated level
   r1 = AddDefine_Kinematics(r1);
+  
   // Data and Response Obj:
-  if (type != FileType::Gen) r1 = AddDefine_Kinematics_RecData(r1);
+  // contains pi0 rows so not for DIS:
+  if (type == FileType::Rec || type == FileType::Data) r1 = AddDefine_Kinematics_RecData(r1);
   // Response Obj only:
   if (type == FileType::Rec) r1 = AddDefine_Kinematics_RecOnly(r1);
   // Gen only:
   if (type == FileType::Gen) r1 = AddDefine_Kinematics_GenOnly(r1);
+
+  // DIS cuts:
+  if (type == FileType::Dis_Data || type == FileType::Dis_Rec) {
+    r1 = AddDefine_CutsCol(r1);
+    // removes misses (no rec elec)
+    // so we do not apply the cuts to not existent particles
+    if (type == FileType::Dis_Rec) r1 = r1.Filter("goodRecElec==1");
+
+  }
+
+  if (type == FileType::Dis_Rec) r1 = AddDefine_RecDisMC(r1);
+  
 
   ////////////////////////////////////////////////////////
   ///// Cuts:
@@ -171,8 +235,10 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
 
   // standard list of cuts Rec, Data, won't work for gen (not enough info)
   // the input parameter means nothing. I may update it to type to use one function for all the cuts.
-  string newCuts       = GetMainCuts(true);
-  string genCuts       = GetMainCuts_Gen();
+  const string newCuts       = GetMainCuts(true, mx_cut_mode);
+  const string genCuts       = GetMainCuts_Gen(mx_cut_mode);
+  const string disCuts = GetDisCuts();
+  const string disCuts_Gen = GetDisCuts_Gen();
 
   // booking rdf obj to use the same name for muliple datasets
   ROOT::RDF::RNode rdf_after_the_cuts = ROOT::RDF::AsRNode(r1);
@@ -180,8 +246,13 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
   // prepare True Rec and Fake Rec Response rdfs
   if (type == FileType::Rec){
     //MC 4 component cuts
-    string sig_cut       = "g1mPID==22 && g2mPID==22 && g1mPPID==111 && g2mPPID==111 && g1mPIndex==g2mPIndex";
+    string sig_cut       = "&& g1mPID==22 && g2mPID==22 && g1mPPID==111 && g2mPPID==111 && g1mPIndex==g2mPIndex";
     string tt_cut        = sig_cut;
+
+    string final_rec_sidis_suts = newCuts;
+    
+
+    if (is_mc_parent_cuts) final_rec_sidis_suts+= sig_cut;
     
     //if (!is_true_gen_event) tt_cut = "!(" + tt_cut + ")";
     //if (!is_true_gen_event) rdf_after_the_cuts = rdf_after_the_cuts.Filter(tt_cut.c_str()); //.Filter("pi0_m > 0.1 && pi0_m < 0.168");
@@ -191,12 +262,13 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
     //rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str()).Filter("isEventINbins").Filter("g1match*g2match>0 && pi0_sidis_PT2m < 1.5");//
     // if there is no match then there is no generated information and the event cannot be used in reponse object Fill
     // probably should be treated as an event without generted info. would be nice to see % of those events to make sure that it is neglig.
-    rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str()).Filter("g1match*g2match>0 && pi0_sidis_PT2m < 1.5");//
+    rdf_after_the_cuts = rdf_after_the_cuts.Filter(final_rec_sidis_suts.c_str()).Filter("g1match*g2match>0 && pi0_sidis_PT2m < 1.5");//
     
     //rdf_after_the_cuts = rdf_after_the_cuts.Filter("isEventINbins");
 
     // saved branches depends on dataset, this one is for response matrix:
-    rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","bin_xBQ2_Valeriim","zpt2phit_8x8x9","zpt2phit_8x8x9m","pi0_m","isEventINbins_m","isEventINbins", "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
+    if (no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9_nophi","pi0_m"});
+    else rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","bin_xBQ2_Valeriim","zpt2phit_8x8x9","zpt2phit_8x8x9m","pi0_m","isEventINbins_m","isEventINbins", "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
   }
 
   // Data Rec distribution. It can be used for filling Rec MC distribution but it is not tested since it is not used in the current workflow. 
@@ -206,19 +278,38 @@ void add_binning(const string full_file_path, string TYPE, bool is_true_gen_even
     rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str());
     // saved branches depends on dataset, this one is for rec data:
 
-    if (!run_z_bins_instead_of_pi0mass) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});
-    if (run_z_bins_instead_of_pi0mass ) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m", "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
+    if (!run_z_bins_instead_of_pi0mass && !no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});
+    if (run_z_bins_instead_of_pi0mass &&  !no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m", "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
+    if (no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9_nophi","pi0_m"});
   }
   
   // Gen has unique set of cuts:
   // if an event has multiple gen pi0 it will fill rdf multiple times so there is no need for weight
   if (type == FileType::Gen){
     // no new cuts are needed
-    rdf_after_the_cuts = rdf_after_the_cuts.Filter(genCuts.c_str());
+    string final_gen_sidis_suts = genCuts;
+    if (is_elec_cut_on_gen) final_gen_sidis_suts += " && goodRecElec==1";
+    rdf_after_the_cuts = rdf_after_the_cuts.Filter(final_gen_sidis_suts.c_str());
     // saved branches depends on dataset, this one is gen:
     // each row is exactly one generated pi0 so there is no need for pi0_m fit.
     // I could have saved hist right away but I will keep intermidaite RDF for consistency with other tyoes of samples.
-    rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9"});
+    if (no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9_nophi"});
+    else rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9"});
+  }
+
+  if (type == FileType::Dis_Data){
+    rdf_after_the_cuts = rdf_after_the_cuts.Filter(disCuts.c_str());
+    rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii", "xB", "Q2", "y"});
+  }
+
+  if (type == FileType::Dis_Rec){
+    rdf_after_the_cuts = rdf_after_the_cuts.Filter(("goodRecElec==1 && " + disCuts).c_str());
+    rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","bin_xBQ2_Valeriim", "xB", "Q2", "xBm", "Q2m", "y", "ym"});
+  }
+
+  if (type == FileType::Gen_Dis){
+    rdf_after_the_cuts = rdf_after_the_cuts.Filter(disCuts_Gen.c_str());
+    rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii", "xB", "Q2", "y"});
   }
 
   return;

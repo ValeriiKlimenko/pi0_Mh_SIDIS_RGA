@@ -30,6 +30,25 @@ ROOT::RDF::RNode AddDefine_Kinematics(ROOT::RDF::RNode node)
               //// Binning: //////////////////
               .Define("bin_xBQ2_Valerii",        ctx.bin_xBQ2,    {"xB", "Q2"});
 }
+
+ROOT::RDF::RNode AddDefine_RecDisMC(ROOT::RDF::RNode node)
+{
+  auto& ctx = get_binning_context();
+  
+   return node.Define("e_Pm",                  Get4mom_corr,      {"ex_gen", "ey_gen", "ez_gen", "esec"})
+              //////////////////////////////////////////////////////////////////////
+              .Define("qm",                    q,                {"e_Pm"})
+              .Define("Q2m",                   Q2,               {"qm"})
+              .Define("W2m",                   W2,               {"qm"})//Mimics others
+              .Define("Wm",                                      "return sqrt(W2m);")
+              .Define("xBm",                   xB,               {"Q2m", "qm"})
+              .Define("ym",                    y,                {"qm"})//Mimic others
+              //// Binning: //////////////////
+              .Define("bin_xBQ2_Valeriim",        ctx.bin_xBQ2,    {"xBm", "Q2m"});
+}
+
+
+
 /// Columns for cuts only. They are used in CSB estimation only for now.
 ROOT::RDF::RNode AddDefine_CutsCol(ROOT::RDF::RNode node)
 {
@@ -37,8 +56,6 @@ ROOT::RDF::RNode AddDefine_CutsCol(ROOT::RDF::RNode node)
               .Define("SF_full",                            "return (e_pcalE + e_ecinE + e_ecoutE)/e_P.P();")
               .Define("SF_pcal_ecin",                            "return (e_pcalE + e_ecinE)/e_P.P();")
               .Define("esec_int",                            "return (int)lrint(esec);")
-              .Define("g1sec_int",                            "return (int)lrint(g1sec);")
-              .Define("g2sec_int",                            "return (int)lrint(g2sec);")
 
               //Cuts:
               .Define("cut_pcal_fid_el",       cut_PCAL_fid,        {"e_pcal_Lw", "e_pcal_Lv", "e_pcal_Lu",
@@ -112,6 +129,7 @@ ROOT::RDF::RNode AddDefine_Kinematics_RecData(ROOT::RDF::RNode node)
               //Valerii: the binning that was actually used. It is a linearization of multidimensional binning
               // Later on Rebin is used to integrate over phitrento
               .Define("zpt2phit_8x8x9",       ctx.zpt2phit_8x8x9,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
+              .Define("zpt2phit_8x8x9_nophi",       ctx.zpt2phit_8x8x9_nophi,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
               .Define("isEventINbins",       ctx.isEventInBins,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
 
               // I am not sure if those binngs are used anywhere so I will keep it at is for now (dec 18 2024)
@@ -169,7 +187,9 @@ ROOT::RDF::RNode AddDefine_Kinematics_GenOnly(ROOT::RDF::RNode node)
               .Define("pi0_sidis_PT2",                          "return pow(pi0_sidis_PT, 2);")
               .Define("xF",                   xF,               {"pi0_P", "q", "W2"})//Mimics the definition on the github as of 10/27/2021
               .Define("isEventINbins",       ctx.isEventInBins,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
+              .Define("zpt2phit_8x8x9_nophi",       ctx.zpt2phit_8x8x9_nophi,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
               .Define("zpt2phit_8x8x9",       ctx.zpt2phit_8x8x9,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
+  
 }
 ////////////// for Rec Only:
 
@@ -212,6 +232,7 @@ ROOT::RDF::RNode AddDefine_Kinematics_RecOnly(ROOT::RDF::RNode node)
      
                //the one that we need:
               .Define("zpt2phit_8x8x9m",       ctx.zpt2phit_8x8x9,   {"xBm", "Q2m", "zm", "pi0_sidis_PT2m", "phi_trentom"})
+     
               .Define("isEventINbins_m",       ctx.isEventInBins,   {"xBm", "Q2m", "zm", "pi0_sidis_PT2m", "phi_trentom"})
     
               //.Define("xq2zpt2phit_13x8x8x9m",   xq2zpt2phit_13x8x8x9,   {"xBm", "Q2m", "zm", "pi0_sidis_PT2m", "phi_trentom"})

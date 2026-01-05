@@ -46,8 +46,6 @@ using std::endl;
 #include "binning_params.cxx"   // N_Zbins, N_pTbins_with_overflow, N_phiTrbins, etc.
 
 
-
-
 // forward declarations so helpers compile before the full defs appear
 // --------------------------- Bundle we pass around ---------------------------
 struct ResponseBundle {
@@ -56,8 +54,13 @@ struct ResponseBundle {
   std::unique_ptr<TH2D> h_true;             // MC truth (truth space), with errPions errors
   std::unique_ptr<TH2D> h_meas_data;        // measured data (preferred input), with errPions errors
   std::unique_ptr<TH2D> h_check;            // diagnostics (reco-like)
-  // migration histogram is intentionally omitted to avoid huge allocations
+
+  // NEW: debug histos
+  std::unique_ptr<TH2D> h_rec_fill;         // zrec vs xrec, filled exactly when resp->Fill is called
+  std::unique_ptr<TH2D> h_gen_fill;         // zgen vs xgen, filled exactly when resp->Fill is called
+  std::unique_ptr<TH2D> h_truth_minus_rec_sub; // (truth-like miss) - h_check after subtract_common_bins
 };
+
 
 
 // ------- Make TH2 like another (same variable/regular binning) -------
@@ -446,7 +449,7 @@ static bool build_response_in_memory(ResponseBundle& out,
 
   // Gather inputs (same logic as your code)
   std::vector<std::string> files_rt, files_fk;
-  for (int i=1;i<=3;++i) {
+  for (int i=1;i<=20;++i) {
     std::string f_rt = Form("/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/unfolding_rec_true/h3_bin_xBQ2_Valerii_%d_fitted.root", i);
     if (!gSystem->AccessPathName(f_rt.c_str())) {
       TFile tf(f_rt.c_str(),"READ"); TTree* t=nullptr; tf.GetObject(treename,t);
@@ -503,13 +506,35 @@ static bool build_response_in_memory(ResponseBundle& out,
   const double z_lo=RESP::z_lo, z_hi=RESP::z_hi, x_lo=RESP::x_lo, x_hi=RESP::x_hi;
 
   // --- create histograms (on heap; response will reference them) ---
-  out.h_meas.reset(new TH2D("h_meas","Measured;z_pt2_phi_bin;xq2bin", nZ, z_lo, z_hi, nX, x_lo, x_hi));
-  out.h_true.reset(new TH2D("h_true","Truth;z_pt2_phi_bin_gen;xq2bin_gen", nZ, z_lo, z_hi, nX, x_lo, x_hi));
-  out.h_check.reset(new TH2D("filled_pi0_true_fake",";z_pt2_phi_bin;xq2bin", nZ, z_lo, z_hi, nX, x_lo, x_hi));
+  // --- create histograms (on heap; response will reference them) ---
+  out.h_meas.reset(new TH2D("h_meas","Measured;z_pt2_phi_bin;xq2bin",
+                             nZ, z_lo, z_hi, nX, x_lo, x_hi));
+  out.h_true.reset(new TH2D("h_true","Truth;z_pt2_phi_bin_gen;xq2bin_gen",
+                             nZ, z_lo, z_hi, nX, x_lo, x_hi));
+  out.h_check.reset(new TH2D("filled_pi0_true_fake",";z_pt2_phi_bin;xq2bin",
+                              nZ, z_lo, z_hi, nX, x_lo, x_hi));
   out.h_meas->Sumw2(true); out.h_true->Sumw2(true); out.h_check->Sumw2(true);
 
-  out.h_meas_data.reset(new TH2D("h_meas_data","Measured data (to unfold);z_pt2_phi_bin;xq2bin", nZ, z_lo, z_hi, nX, x_lo, x_hi));
+  out.h_meas_data.reset(new TH2D("h_meas_data",
+    "Measured data (to unfold);z_pt2_phi_bin;xq2bin",
+    nZ, z_lo, z_hi, nX, x_lo, x_hi));
   out.h_meas_data->Sumw2(true);
+
+  // NEW: reco and truth histos filled in sync with out.resp->Fill(...)
+  out.h_rec_fill.reset(
+    new TH2D("h_rec_fill_resp",
+             "Reco entries used in response;z_{rec};x_{rec}",
+             nZ, z_lo, z_hi, nX, x_lo, x_hi));
+  out.h_rec_fill->Sumw2(true);
+  out.h_rec_fill->SetDirectory(nullptr);
+
+  out.h_gen_fill.reset(
+    new TH2D("h_gen_fill_resp",
+             "Truth entries used in response;z_{gen};x_{gen}",
+             nZ, z_lo, z_hi, nX, x_lo, x_hi));
+  out.h_gen_fill->Sumw2(true);
+  out.h_gen_fill->SetDirectory(nullptr);
+
 
   // Accumulate Σerr^2
   TH2D h_meas_err2_acc("h_meas_err2_acc","", nZ,z_lo,z_hi, nX,x_lo,x_hi);
@@ -601,6 +626,7 @@ static bool build_response_in_memory(ResponseBundle& out,
   }
 
   // ---- Matched rec<->truth events ----
+  // ---- Matched rec<->truth events ----
   flt_rt.Foreach(
     [&](int z_gen, int z_rec, int x_gen, int x_rec, double ww, double ew){
       const double zrec = (double)z_rec, xrec = (double)x_rec;
@@ -608,7 +634,14 @@ static bool build_response_in_memory(ResponseBundle& out,
       if (!(in_range(zrec,z_lo,z_hi) && in_range(xrec,x_lo,x_hi)
             && in_range(zgen,z_lo,z_hi) && in_range(xgen,x_lo,x_hi))) return;
 
+      // Fill response
       out.resp->Fill(zrec, xrec, zgen, xgen, ww);
+
+      // NEW: explicit reco & truth occupancy histos used to feed the response
+      if (out.h_rec_fill)
+        out.h_rec_fill->Fill(zrec, xrec, ww);
+      if (out.h_gen_fill)
+        out.h_gen_fill->Fill(zgen, xgen, ww);
 
       a_zgen = z_gen; a_xgen = x_gen; a_zrec = z_rec; a_xrec = x_rec;
       a_w = ww; a_kind = 0; tfill->Fill();
@@ -616,13 +649,15 @@ static bool build_response_in_memory(ResponseBundle& out,
       if (x_rec>=0 && x_rec<nX) M_given_recoX [x_rec]->Fill(zrec, zgen, ww);
 
 
-      
-      out.h_check->Fill(zrec, xrec, ww);
-
+      out.h_check->Fill(zgen, xgen, ww);
+    
       const int bx_m = out.h_meas->GetXaxis()->FindBin(zrec);
       const int by_m = out.h_meas->GetYaxis()->FindBin(xrec);
       h_meas_err2_acc.AddBinContent(h_meas_err2_acc.GetBin(bx_m,by_m), ew*ew);
-      h_check_err2_acc.AddBinContent(h_check_err2_acc.GetBin(bx_m,by_m), ew*ew);
+
+      const int bx_m_gen = out.h_meas->GetXaxis()->FindBin(zgen);
+      const int by_m_gen = out.h_meas->GetYaxis()->FindBin(xgen);      
+      h_check_err2_acc.AddBinContent(h_check_err2_acc.GetBin(bx_m_gen,by_m_gen), ew*ew);
 
       const int bx_t = out.h_true->GetXaxis()->FindBin(zgen);
       const int by_t = out.h_true->GetYaxis()->FindBin(xgen);
@@ -630,6 +665,7 @@ static bool build_response_in_memory(ResponseBundle& out,
     },
     {"z_pt2_phi_bin_gen","z_pt2_phi_bin","xq2bin_gen","xq2bin","nPions","errPions"}
   );
+
 
   // ---- Reco-only fakes (off by default; leave logic here) ----
   if (include_fakes && df_fk_ptr) {
@@ -639,11 +675,9 @@ static bool build_response_in_memory(ResponseBundle& out,
         const double zrec = (double)z_rec, xrec = (double)x_rec;
         if (!(in_range(zrec,z_lo,z_hi) && in_range(xrec,x_lo,x_hi))) return;
         out.resp->Fake(zrec, xrec, ww);
-        out.h_check->Fill(zrec, xrec, ww);
         const int bx_m = out.h_meas->GetXaxis()->FindBin(zrec);
         const int by_m = out.h_meas->GetYaxis()->FindBin(xrec);
         h_meas_err2_acc.AddBinContent(h_meas_err2_acc.GetBin(bx_m,by_m), ew*ew);
-        h_check_err2_acc.AddBinContent(h_check_err2_acc.GetBin(bx_m,by_m), ew*ew);
       },
       {"z_pt2_phi_bin_gen","z_pt2_phi_bin","xq2bin_gen","xq2bin","nPions","errPions"}
     );
@@ -652,7 +686,7 @@ static bool build_response_in_memory(ResponseBundle& out,
 // ---- Truth-only Misses ---- (read from gen_binning_2D.root)
 // File should contain a TH2: X=bin_xBQ2_Valerii, Y=zpt2phit_8x8x9
 {
-  const char* miss2d_file  = "gen_binning_2D.root";
+  const char* miss2d_file  = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/gen_binning_2D.root";
   const char* miss2d_hname = "h2_binX_vs_z"; // change if your object name differs
 
   auto h_truth_like = LoadTruthLikeFromGen2D(
@@ -669,6 +703,20 @@ static bool build_response_in_memory(ResponseBundle& out,
     TH2D h_truth_minus_rec(*h_truth_like);
     h_truth_minus_rec.SetDirectory(nullptr);
     subtract_common_bins(h_truth_minus_rec, *out.h_check);
+
+
+    // NEW: save the (truth-like minus reco) map into the bundle
+    {
+      auto* hcopy =
+        dynamic_cast<TH2D*>(h_truth_minus_rec.Clone("h_truth_minus_rec_minus_hcheck"));
+      if (hcopy) {
+        hcopy->SetDirectory(nullptr);
+        out.h_truth_minus_rec_sub.reset(hcopy);
+      }
+    }
+
+
+    
 
     // --- Save per-xQ2 zpt2phi (Z) distributions BEFORE and AFTER subtraction
     // Put them neatly into response_audit.root/miss_slices
@@ -726,7 +774,15 @@ static bool build_response_in_memory(ResponseBundle& out,
   }
 }
 
+// >>> COPY INTERNAL ROOUNFOLD HISTOS INTO YOUR MC MAPS (do this now) <<<
+if (out.resp) {
+  if (auto* hm_int = dynamic_cast<TH2*>(out.resp->Hmeasured()))
+    out.h_meas->Add(hm_int);
+  if (auto* ht_int = dynamic_cast<TH2*>(out.resp->Htruth()))
+    out.h_true->Add(ht_int);
+}
 
+  
   // ---- Overwrite bin errors with sqrt(Σ err^2) ----
   for (int ix=1; ix<=out.h_meas->GetNbinsX(); ++ix) {
     for (int iy=1; iy<=out.h_meas->GetNbinsY(); ++iy) {
@@ -775,6 +831,10 @@ static void ResponseQA(const ResponseBundle& pack, const char* out="qa_response.
   // where are we writing?
   TString out_full = gSystem->ConcatFileName(gSystem->WorkingDirectory(), out);
   TFile f(out_full, "RECREATE");
+
+
+
+  
   if (f.IsZombie()) {
     Error("ResponseQA","Cannot create '%s' (cwd=%s).", out, gSystem->WorkingDirectory());
     return;
@@ -806,6 +866,35 @@ static void ResponseQA(const ResponseBundle& pack, const char* out="qa_response.
   } else {
     std::cout << "  Migration M: (missing)\n";
   }
+
+
+  // ---- Save requested debug histograms ----
+  // 1) out.h_check
+  if (pack.h_check) {
+    TH2D* hchk = dynamic_cast<TH2D*>(pack.h_check->Clone("h_check_debug"));
+    if (hchk) { hchk->SetDirectory(&f); hchk->Write(); }
+  }
+
+  // 2) (h_truth_minus_rec - h_check) AFTER subtract_common_bins
+  if (pack.h_truth_minus_rec_sub) {
+    TH2D* hmiss = dynamic_cast<TH2D*>(
+      pack.h_truth_minus_rec_sub->Clone("h_truth_minus_rec_minus_hcheck_debug"));
+    if (hmiss) { hmiss->SetDirectory(&f); hmiss->Write(); }
+  }
+
+  // 3) reco coordinates used in resp->Fill: zrec vs xrec
+  if (pack.h_rec_fill) {
+    TH2D* hrec = dynamic_cast<TH2D*>(pack.h_rec_fill->Clone("h_rec_vs_zrec_debug"));
+    if (hrec) { hrec->SetDirectory(&f); hrec->Write(); }
+  }
+
+  // 4) truth coordinates used in resp->Fill: zgen vs xgen
+  if (pack.h_gen_fill) {
+    TH2D* hgen = dynamic_cast<TH2D*>(pack.h_gen_fill->Clone("h_gen_vs_zgen_debug"));
+    if (hgen) { hgen->SetDirectory(&f); hgen->Write(); }
+  }
+
+  
 
 // ---- Always write the base histos we have ----
 write_if(hm, "h_measured_trained");
@@ -853,29 +942,58 @@ if (M) {
 
   // ---- Efficiency / fake / purity / stability (need M + hm/ht accordingly) ----
   TH2 *hEff=nullptr, *hMiss=nullptr, *hMF=nullptr, *hFake=nullptr, *hPur=nullptr, *hSta=nullptr;
-  if (M && hm && ht) {
-    hEff  = (TH2*) ht->Clone("h_efficiency");   hEff->Reset("ICES");
-    hMiss = (TH2*) ht->Clone("h_miss");         hMiss->Reset("ICES");
-    hMF   = (TH2*) hm->Clone("h_matchedFrac");  hMF->Reset("ICES");
-    hFake = (TH2*) hm->Clone("h_fakeFrac");     hFake->Reset("ICES");
-    hPur  = (TH2*) hm->Clone("h_purity");       hPur->Reset("ICES");
-    hSta  = (TH2*) ht->Clone("h_stability");    hSta->Reset("ICES");
+// ---- Efficiency / fake / purity / stability (need M + hm/ht accordingly) ----
+if (M && hm && ht) {
+  // Treat anything above ~5e7 bins as "too big" to scan/write in QA
+  const bool M_huge = IsHuge(M, /*maxBins*/ 50000000LL);
+  if (M_huge) {
+    std::cerr << "QA: skip efficiency/purity/etc: migration matrix is huge ("
+              << M->GetNbinsX() << "x" << M->GetNbinsY()
+              << " = " << 1LL*M->GetNbinsX()*M->GetNbinsY() << " bins).\n";
+  } else {
+    const int nx = M->GetNbinsX();
+    const int ny = M->GetNbinsY();
 
-    const int nx = M->GetNbinsX(), ny = M->GetNbinsY();
-    for (int jy=1; jy<=ny; ++jy) {
-      for (int ix=1; ix<=nx; ++ix) {
-        double colSum=0, rowSum=0;
-        for (int ix2=1; ix2<=nx; ++ix2) colSum += M->GetBinContent(ix2, jy); // sum over reco (fixed truth)
-        for (int jy2=1; jy2<=ny; ++jy2) rowSum += M->GetBinContent(ix,  jy2); // sum over truth (fixed reco)
+    // Precompute row/column sums ONCE (O(nx*ny))
+    std::vector<double> rowSum(nx, 0.0); // fixed reco ix, sum over truth
+    std::vector<double> colSum(ny, 0.0); // fixed truth jy, sum over reco
+    for (int ix=1; ix<=nx; ++ix) {
+      for (int jy=1; jy<=ny; ++jy) {
+        const double v = M->GetBinContent(ix, jy);
+        rowSum[ix-1] += v;
+        colSum[jy-1] += v;
+      }
+    }
 
-        const double T   = ht->GetBinContent(ix,jy);
-        const double R   = hm->GetBinContent(ix,jy);
-        const double diag= M->GetBinContent(ix,jy);
+    // Make empty outputs without copying contents (Clone+Reset)
+    auto makeLike = [](const TH2* tmpl, const char* name, const char* title){
+      auto* h = (TH2D*)tmpl->Clone(name);
+      h->Reset("ICES");           // keep axes, clear content+sumw2
+      if (title && *title) h->SetTitle(title);
+      h->SetDirectory(nullptr);   // don't tie to gDirectory
+      return h;
+    };
+    TH2 *hEff  = makeLike(ht, "h_efficiency",  "Efficiency");
+    TH2 *hMiss = makeLike(ht, "h_miss",        "1 - Efficiency");
+    TH2 *hMF   = makeLike(hm, "h_matchedFrac", "Matched fraction");
+    TH2 *hFake = makeLike(hm, "h_fakeFrac",    "1 - Matched fraction");
+    TH2 *hPur  = makeLike(hm, "h_purity",      "Purity");
+    TH2 *hSta  = makeLike(ht, "h_stability",   "Stability");
 
-        const double eff = (T>0)     ? colSum/T    : 0.0;
-        const double mf  = (R>0)     ? rowSum/R    : 0.0;
-        const double pur = (rowSum>0)? diag/rowSum : 0.0;
-        const double sta = (colSum>0)? diag/colSum : 0.0;
+    // Fill using precomputed sums (O(nx*ny))
+    for (int ix=1; ix<=nx; ++ix) {
+      const double rsum = rowSum[ix-1];
+      for (int jy=1; jy<=ny; ++jy) {
+        const double csum = colSum[jy-1];
+
+        const double T    = ht->GetBinContent(ix,jy);
+        const double R    = hm->GetBinContent(ix,jy);
+        const double diag = M ->GetBinContent(ix,jy);
+
+        const double eff = (T>0)    ? (csum/T) : 0.0;
+        const double mf  = (R>0)    ? (rsum/R) : 0.0;
+        const double pur = (rsum>0) ? (diag/rsum) : 0.0;
+        const double sta = (csum>0) ? (diag/csum) : 0.0;
 
         hEff ->SetBinContent(ix,jy, eff);
         hMiss->SetBinContent(ix,jy, 1.0-eff);
@@ -885,20 +1003,27 @@ if (M) {
         hSta ->SetBinContent(ix,jy, sta);
       }
     }
+
+    // Write them out (you can also guard this with IsHuge if needed)
     write_if(hEff); write_if(hMiss);
     write_if(hMF);  write_if(hFake);
     write_if(hPur); write_if(hSta);
-  } else {
-    if (!M)  std::cerr << "QA: skip efficiency/purity/etc (missing M)\n";
-    if (!hm) std::cerr << "QA: skip matchedFrac/fake/purity (missing Hmeasured)\n";
-    if (!ht) std::cerr << "QA: skip efficiency/stability (missing Htruth)\n";
   }
+} else {
+  if (!M)  std::cerr << "QA: skip efficiency/purity/etc (missing M)\n";
+  if (!hm) std::cerr << "QA: skip matchedFrac/fake/purity (missing Hmeasured)\n";
+  if (!ht) std::cerr << "QA: skip efficiency/stability (missing Htruth)\n";
+}
 
   // ---- MC closure (need response + hm; ratio needs ht) ----
   TH2* hU = nullptr;
   TH2* hRatio = nullptr;
+
+  cout<<"writing QA"<<endl;
+  /*
   if (pack.resp && hm && false) {
-    RooUnfoldBayes cl(pack.resp.get(), hm, /*iter=*/5);
+    //last parametr are iterations:
+    RooUnfoldBayes cl(pack.resp.get(), hm, 5);
     // cl.SetVerbose(0); // optional if available
     hU = dynamic_cast<TH2*>(cl.Hunfold(RooUnfold::kErrors));
     write_if(hU, "h_unfold_closure");
@@ -919,7 +1044,7 @@ if (M) {
     if (!pack.resp) std::cerr << "QA: skip closure (missing response)\n";
     if (!hm)        std::cerr << "QA: skip closure (missing Hmeasured)\n";
   }
-
+  */
   f.Write();
   f.Close();
   std::cout << "QA wrote: " << out_full << "\n";
@@ -1048,11 +1173,184 @@ static int unfold_manual_bbb_from_memory(const ResponseBundle& pack,
   return 0;
 }
 
+
+// ---------------------- RooUnfold Bin-by-Bin (2D) ---------------------------
+static int unfold_roounfold_bbb_from_memory(const ResponseBundle& pack,
+                                            const char* out_file = "unfold_out_roo_bbb.root",
+                                            bool include_mc_stat = false,
+                                            double eps = 0.0)
+{
+  if (!pack.resp || !pack.h_true || !pack.h_meas) {
+    std::cerr << "ERROR: need trained response + MC histos.\n";
+    return 1;
+  }
+  TH2* h_input = pack.h_meas_data ? (TH2*)pack.h_meas_data.get()
+                                  : (TH2*)pack.h_meas.get();
+
+  // Sanity: measured input must be compatible with response's measured space
+  if (!axes_identical(*h_input, *pack.h_meas)) {
+    std::cerr << "WARNING: input measured binning != response measured binning.\n";
+  }
+
+  // Do the actual RooUnfold BinByBin
+  RooUnfoldBinByBin u(pack.resp.get(), h_input);
+  u.SetVerbose(0);
+  TH2* h_unfold = dynamic_cast<TH2*>(u.Hunfold(RooUnfold::kErrors));
+  if (!h_unfold) {
+    std::cerr << "ERROR: RooUnfoldBinByBin::Hunfold returned null.\n";
+    return 2;
+  }
+  h_unfold->SetName("unfold_RooUnfoldBinByBin");
+  h_unfold->SetTitle(Form("Unfolded spectrum (RooUnfold BinByBin);%s;%s",
+                          pack.h_true->GetXaxis()->GetTitle(),
+                          pack.h_true->GetYaxis()->GetTitle()));
+
+  // For consistent QA visuals, also compute the scale factor and zero-eff mask
+  std::unique_ptr<TH2D> h_sf   ( MakeEmptyTH2DLike(pack.h_true.get(), "h_bbb_scale_factor_roo", "Scale factor T_MC/M_MC per bin (from response MC)") );
+  std::unique_ptr<TH2D> h_zero ( MakeEmptyTH2DLike(pack.h_true.get(), "h_bbb_zeroeff_roo",      "Mask: 1 where M_MC<=eps, else 0") );
+
+  const int nx = pack.h_true->GetNbinsX();
+  const int ny = pack.h_true->GetNbinsY();
+  for (int jy=1; jy<=ny; ++jy) {
+    for (int ix=1; ix<=nx; ++ix) {
+      const double T  = pack.h_true->GetBinContent(ix, jy);
+      const double eT = pack.h_true->GetBinError  (ix, jy);
+      const double M  = pack.h_meas->GetBinContent(ix, jy);
+      const double eM = pack.h_meas->GetBinError  (ix, jy);
+
+      if (std::fabs(M) <= eps) { h_sf->SetBinContent(ix,jy,0); h_zero->SetBinContent(ix,jy,1); continue; }
+
+      const double SF = T/M;
+      h_sf->SetBinContent(ix,jy, SF);
+      if (include_mc_stat) {
+        const double relT = (std::fabs(T)>eps) ? eT/std::fabs(T) : 0.0;
+        const double relM = (std::fabs(M)>eps) ? eM/std::fabs(M) : 0.0;
+        h_sf->SetBinError(ix,jy, std::fabs(SF)*std::sqrt(relT*relT + relM*relM));
+      }
+      h_zero->SetBinContent(ix,jy, 0.0);
+    }
+  }
+
+  // PNGs (unfold vs truth, etc.)
+  QA_BBB_SavePNGs(pack, h_unfold, h_sf.get(), h_zero.get(), "png_bbb_roo");
+
+  // Write outputs
+  TFile fout(out_file, "RECREATE");
+  if (fout.IsZombie()) { std::cerr << "ERROR: cannot create " << out_file << "\n"; return 3; }
+  if (pack.h_meas_data) WriteSmart((TH2*)pack.h_meas_data->Clone(), "h_meas_data_input", fout);
+  WriteSmart((TH2*)pack.h_meas->Clone(), "h_meas_mc", fout);
+  WriteSmart((TH2*)pack.h_true->Clone(), "h_true_mc", fout);
+
+  // Unfolded result (sparse to be safe)
+  WriteSmart(h_unfold, "unfold_RooUnfoldBinByBin", fout, /*eps=*/0.0, /*forceSparse=*/true);
+
+  // Helpers
+  WriteSmart(h_sf.release(),   "h_bbb_scale_factor_roo", fout);
+  WriteSmart(h_zero.release(), "h_bbb_zeroeff_roo",      fout);
+
+  fout.Write(); fout.Close();
+  std::cout << "RooUnfold BinByBin done. Wrote: " << out_file << "\n";
+  return 0;
+}
+
+
+// Save Bayes unfolded output after *every* iteration (1..maxIter).
+static int unfold_bayes_save_each_iter(const ResponseBundle& pack,
+                                       int  maxIter          = 6,
+                                       const char* out_base  = "unfold_bayes",
+                                       bool put_all_in_one   = true,   // true = one ROOT file with all iters
+                                       bool make_pngs        = false)  // optional quicklook plots
+{
+  if (!pack.resp || !pack.h_true || !pack.h_meas) {
+    std::cerr << "ERROR: need trained response + MC histos.\n";
+    return 1;
+  }
+  TH2* h_input = pack.h_meas_data ? (TH2*)pack.h_meas_data.get()
+                                  : (TH2*)pack.h_meas.get();
+
+  if (!h_input) { std::cerr << "ERROR: no measured input.\n"; return 2; }
+  if (!axes_identical(*h_input, *pack.h_meas)) {
+    std::cerr << "WARNING: input measured binning != response measured binning.\n";
+  }
+
+  auto write_header = [&](TFile& f){
+    if (pack.h_meas_data) WriteSmart((TH2*)pack.h_meas_data->Clone(), "h_meas_data_input", f);
+    WriteSmart((TH2*)pack.h_meas->Clone(), "h_meas_mc", f);
+    WriteSmart((TH2*)pack.h_true->Clone(), "h_true_mc", f);
+  };
+
+  auto one_iter = [&](int i, TFile* f_external){
+    RooUnfoldBayes u(pack.resp.get(), h_input, i);
+    u.SetVerbose(0);
+    TH2* h_unfold_i = dynamic_cast<TH2*>(u.Hunfold(RooUnfold::kErrors));
+    if (!h_unfold_i) {
+      std::cerr << "ERROR: Hunfold returned null at iteration " << i << ".\n";
+      return 3;
+    }
+
+    // Clone so the histogram outlives 'u'
+    TString hname = Form("unfold_Bayes_iter%02d", i);
+    std::unique_ptr<TH2> hC( dynamic_cast<TH2*>(h_unfold_i->Clone(hname)) );
+    hC->SetTitle(Form("Unfolded spectrum (Bayes, %d iter);%s;%s",
+                      i, pack.h_true->GetXaxis()->GetTitle(), pack.h_true->GetYaxis()->GetTitle()));
+
+    if (f_external) {
+      // write into the already-open file
+      WriteSmart(hC.get(), hname, *f_external, /*eps=*/0.0, /*forceSparse=*/true);
+    } else {
+      // separate file mode
+      TString ofn = Form("%s_iter%02d.root", out_base, i);
+      TFile fout(ofn, "RECREATE");
+      if (fout.IsZombie()) { std::cerr << "ERROR: cannot create " << ofn << "\n"; return 4; }
+      write_header(fout);
+      WriteSmart(hC.get(), hname, fout, /*eps=*/0.0, /*forceSparse=*/true);
+      fout.Write(); fout.Close();
+      std::cout << "Wrote: " << ofn << "\n";
+    }
+
+    if (make_pngs) {
+      // quick visuals per iteration (optional)
+      gSystem->mkdir(Form("png_bayes_iter%02d", i), /*recursive*/kTRUE);
+      Save2D(hC.get(), Form("png_bayes_iter%02d", i), "unfold_bayes", /*logz=*/false);
+      Save2D(hC.get(), Form("png_bayes_iter%02d", i), "unfold_bayes", /*logz=*/true);
+      const TH2* h_meas_like = pack.h_meas_data ? (TH2*)pack.h_meas_data.get()
+                                                : (TH2*)pack.h_meas.get();
+      SaveOverlayY(pack.h_true.get(), h_meas_like, hC.get(),
+                   Form("png_bayes_iter%02d", i), "projY_xq2bin_overlay");
+    }
+
+    return 0;
+  };
+
+  if (put_all_in_one) {
+    TString ofn = Form("%s_allIters.root", out_base);
+    TFile fout(ofn, "RECREATE");
+    if (fout.IsZombie()) { std::cerr << "ERROR: cannot create " << ofn << "\n"; return 5; }
+    write_header(fout);
+
+    int rc = 0;
+    for (int i=1; i<=maxIter; ++i) {
+      rc = one_iter(i, &fout);
+      if (rc) { std::cerr << "Stopping at iteration " << i << " due to error.\n"; break; }
+    }
+    fout.Write(); fout.Close();
+    if (!rc) std::cout << "Bayes (1.." << maxIter << ") wrote: " << ofn << "\n";
+    return rc;
+  } else {
+    // one file per iteration
+    for (int i=1; i<=maxIter; ++i) {
+      int rc = one_iter(i, /*f_external=*/nullptr);
+      if (rc) return rc;
+    }
+    return 0;
+  }
+}
+
 // ------------------------------- Driver -------------------------------------
 // Call this from ROOT:  .x unfold_onepass.cxx+("bayes",5)
 // or compile w/ ACLiC or your build system.
 int onepass_unfold(const char* method = "",
-                   int nIter = 1,
+                   int nIter = 2,
                    const char* out_bayes = "unfold_out.root",
                    const char* out_bbb   = "unfold_out_manual_bbb.root",
                    bool write_response_snapshot = false)
@@ -1067,25 +1365,31 @@ int onepass_unfold(const char* method = "",
   ResponseQA(pack, "qa_response.root");
   cout <<"QA is done"<<endl;
 
-  return unfold_manual_bbb_from_memory(pack, out_bbb, false, 0.0);
-
-  /*
   TString m(method); m.ToLower();
   if (m=="bayes" || m=="bayes_iter") {
-    cout<<"Performing Bayes"<<endl;
     return unfold_from_memory(pack, true, nIter, out_bayes);
   } else if (m=="bbb" || m=="binbybin") {
-    cout<<"Performing BBB"<<endl;
-    return unfold_manual_bbb_from_memory(pack, out_bbb, false, 0.0);
+    // keep your original *manual* BBB
+    return unfold_manual_bbb_from_memory(pack, out_bbb, /*include_mc_stat=*/false, /*eps=*/0.0);
+  } else if (m=="bbb_roo" || m=="roo_bbb" || m=="roobbb") {
+    // new RooUnfold BinByBin path
+    return unfold_roounfold_bbb_from_memory(pack, "unfold_out_roo_bbb.root",
+                                            /*include_mc_stat=*/false, /*eps=*/0.0);
   } else if (m=="both") {
     int rc1 = unfold_from_memory(pack, true, nIter, out_bayes);
     int rc2 = unfold_manual_bbb_from_memory(pack, out_bbb, false, 0.0);
     return rc1 ? rc1 : rc2;
+
+  } else if (m=="bayes_sweep" || m=="bayes_scan" || m=="bayes_all") {
+  // writes unfold_Bayes_iter01..iterN either into one file or many (see args below)
+  return unfold_bayes_save_each_iter(pack, nIter, /*out_base=*/"unfold_bayes",
+                                     /*put_all_in_one=*/true,  /*make_pngs=*/false);
+    
   } else {
-    std::cerr << "Unknown method: " << method << " (use 'bayes', 'bbb', or 'both')\n";
+    std::cerr << "Unknown method: " << method
+              << " (use 'bayes', 'bbb', 'bbb_roo', or 'both')\n";
     return 11;
   }
-  */
 }
 
 

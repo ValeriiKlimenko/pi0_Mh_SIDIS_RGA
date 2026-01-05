@@ -30,6 +30,7 @@ int N_xq2bins = 0;                          // set at runtime from makeTH2PolyMa
 struct bin_xBQ2_Valerii;
 struct MarsZpt2;
 struct Zpt2Phit_8x8x9;
+struct Zpt2Phit_8x8x9_NoPhi;
 struct IsEventInBins;
 
 struct BinningContext;
@@ -87,6 +88,18 @@ struct Zpt2Phit_8x8x9 {
   }
 };
 
+// -----------------------------------------------------------------------------
+// z⊗pT² only (φ ignored) — keeps the same call signature for drop-in replacement
+// -----------------------------------------------------------------------------
+struct Zpt2Phit_8x8x9_NoPhi {
+  MarsZpt2 mars_zpt2;
+  int operator()(double x, double Q2, double z, double pt2, double phit) const {
+    const int zpt2 = mars_zpt2(x, Q2, z, pt2);
+    if (zpt2 < 1) return -1;
+    return zpt2; // TH2Poly bin (1..), within the given (x,Q²) bin
+  }
+};
+
 struct IsEventInBins {
   std::shared_ptr<TH2Poly> poly_xQ2;
   std::shared_ptr<std::vector<std::shared_ptr<TH2Poly>>> poly_zpt2;
@@ -119,7 +132,8 @@ struct BinningContext {
 
   bin_xBQ2_Valerii bin_xBQ2;
   MarsZpt2         mars_zpt2;
-  Zpt2Phit_8x8x9   zpt2phit_8x8x9;
+  Zpt2Phit_8x8x9    zpt2phit_8x8x9;
+  Zpt2Phit_8x8x9_NoPhi zpt2phit_8x8x9_nophi;
   IsEventInBins    isEventInBins;
 };
 
@@ -156,6 +170,7 @@ BinningContext make_binning_context() {
   ctx.bin_xBQ2       = bin_xBQ2_Valerii{ctx.poly_xQ2};
   ctx.mars_zpt2      = MarsZpt2{ctx.poly_xQ2, ctx.poly_zpt2};
   ctx.zpt2phit_8x8x9 = Zpt2Phit_8x8x9{ctx.mars_zpt2, ctx.reft9};
+  ctx.zpt2phit_8x8x9_nophi = Zpt2Phit_8x8x9_NoPhi{ctx.mars_zpt2};
   ctx.isEventInBins  = IsEventInBins{ctx.poly_xQ2, ctx.poly_zpt2, ctx.reft9};
   return ctx;
 }

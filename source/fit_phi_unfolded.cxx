@@ -37,7 +37,7 @@ using std::endl;
 #include "binning_params.cxx"
 
 // ----------- Rebuild TH2D from sparse tree ---------------------
-static TH2D* ReconstructFromSparseDir(TDirectory* d, const char* denseName="unfold_Bayes_iter1_dense")
+static TH2D* ReconstructFromSparseDir(TDirectory* d, const char* denseName="unfold_ManualBinByBin")
 {
   if (!d) { cerr << "ReconstructFromSparseDir: null directory\n"; return nullptr; }
 
@@ -93,16 +93,16 @@ static void SplitPhiHists(const TH2D* h2,
   if (!h2) { cerr << "SplitPhiHists: null TH2\n"; return; }
 
   // EXPECTED: X packs = (z ⊗ pT ⊗ φ), Y = xQ2
-  const int nx_have   = h2->GetNbinsX();
+  const int nComposite = nZ * nPt * nPhi;
+  const int nx_have    = h2->GetNbinsX();
   const int ny_have   = h2->GetNbinsY();
 
-  const int nx_needed = nPhi * nZ * nPt;
-  if (nx_have < nx_needed) {
+  const int nx_expected = nComposite + 1;
+  if (nx_have < nx_expected) {
     cerr << "WARNING: h2 has only " << nx_have
-         << " X bins, but mapping expects at least " << nx_needed << ".\n"
-         << "         Will clamp to available X bins.\n";
+         << " X bins, but mapping expects at least " << nx_expected << ".\n";
   }
-  const int nx_limit = std::min(nx_have, nx_needed);
+  const int nx_limit = std::min(nx_have, nx_expected);
   const int ny_limit = std::min(ny_have, max_ix); // cap Y by available xQ2 bins and user limit (default 16)
 
   // Counters
@@ -125,17 +125,11 @@ static void SplitPhiHists(const TH2D* h2,
       for (int ipt=1; ipt<=nPt; ++ipt) {
         ++nCandidates;
 
-        // j is the 1-based (z ⊗ pT) cell index
-        const int j = (iz-1)*nPt + ipt; // 1..(nZ*nPt)
+      const int zpt2 = (iz-1)*nPt + ipt;   // 1..(nZ*nPt)
+      const int j0   = zpt2 - 1;           // 0-based
 
-        // φ-pack along X for this (iz, ipt)
-        const int baseIx = nPhi*j + 1;
-        const int lastIx = nPhi*j + nPhi;
-        if (baseIx > nx_limit) { ++nOutOfRange; continue; }
-        if (lastIx > nx_limit) ++nClamped;
-
-        std::unique_ptr<TH1D> hphi(new TH1D(
-            Form("phi_ix%02d_z%02d_pt%02d", ixq2, iz, ipt),
+    std::unique_ptr<TH1D> hphi(new TH1D(
+      Form("phi_ix%02d_z%02d_pt%02d", ixq2, iz, ipt),
             Form("#phi_{Trento};#phi_{Trento} [deg];Unfolded counts (xQ^{2}=%d, z=%d, pT=%d)",
                  ixq2, iz, ipt),
             nPhi, 0.0, 360.0));
@@ -143,14 +137,20 @@ static void SplitPhiHists(const TH2D* h2,
 
         bool nonEmpty = false;
         for (int iph=1; iph<=nPhi; ++iph) {
-          const int xbin = nPhi*j + iph;     // X holds (z⊗pT⊗φ)
-          if (xbin > nx_limit) break;        // truncated pack
-
-          const double v = h2->GetBinContent(xbin, ixq2); // (X, Y)
+          const int comp = j0*nPhi + iph;   // 1..704
+          if (comp < 1 || comp > nComposite) break;
+    
+          // coordinate = comp (what you used when filling), bin index computed by ROOT
+          const double xcoord = double(comp);
+          const int xbin = h2->GetXaxis()->FindBin(xcoord);
+          if (xbin < 1 || xbin > nx_limit) break;
+    
+          const double v = h2->GetBinContent(xbin, ixq2);
           const double e = h2->GetBinError  (xbin, ixq2);
+    
           hphi->SetBinContent(iph, v);
           hphi->SetBinError  (iph, e);
-
+    
           if (std::fabs(v) > emptyEps || std::fabs(e) > emptyEps) nonEmpty = true;
         }
 
@@ -175,8 +175,8 @@ static void SplitPhiHists(const TH2D* h2,
        << "  empty (not saved):      " << nEmpty << "\n"
        << "  out-of-range packs:     " << nOutOfRange << "\n"
        << "  clamped packs:          " << nClamped << "\n"
-       << "  nx_have/nx_needed/nx_limit = "
-       << nx_have << "/" << nx_needed << "/" << nx_limit << "\n"
+      << "  nx_have/nx_expected/nx_limit = "
+           << nx_have << "/" << nx_expected << "/" << nx_limit << "\n"
        << "  ny_have/ny_limit (xQ2) = "
        << ny_have << "/" << ny_limit << std::endl;
 }
@@ -194,7 +194,7 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
                     int max_ix              = 16,              // cap to 16 by default
                     int nZ                  = N_Zbins,
                     int nPt                 = N_pTbins_with_overflow,
-                    int minPoints           = 3)
+                    int minPoints           = 6)
 {
   // Cuts:
   const double relUncMax = 0.90;  // drop if e/|v| > 90%
@@ -209,12 +209,15 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
   if (fOut.IsZombie()) { ::Error("fit_phi_slices","Cannot create %s", outRootFile); return; }
 
   Int_t   out_ix=0, out_iz=0, out_iPt=0;
-  Double_t out_p0=0.0;
-  TTree t("phi_fit_p0", "Fit results: p0 from p0 + p1*cos + p2*cos2");
+  Double_t out_p0=0.0, out_p1=0.0, out_p2=0.0;
+  
+  TTree t("phi_fit_p0", "Fit results: p0,p1,p2 from p0 + p1*cos + p2*cos2");
   t.Branch("ix",  &out_ix);
   t.Branch("iz",  &out_iz);
   t.Branch("iPt", &out_iPt);
   t.Branch("p0",  &out_p0);
+  t.Branch("p1",  &out_p1);
+  t.Branch("p2",  &out_p2);
 
   TF1 fphi("fphi",
            "[0] + [1]*cos(x*TMath::Pi()/180.) + [2]*cos(2.*x*TMath::Pi()/180.)",
@@ -239,7 +242,69 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 
         // Compute histogram average once (over all φ bins)
         const int nBins = h->GetNbinsX();
-        const double histAvg = (nBins > 0) ? h->Integral(1, nBins) / nBins : 0.0;
+        
+        double sumNonZero = 0.0;
+        int    nNonZero   = 0;
+        
+        for (int b = 1; b <= nBins; ++b) {
+          const double v = h->GetBinContent(b);
+          const double e = h->GetBinError(b);
+        
+          // Treat bins with both v≈0 and e≈0 as "empty"
+          if (std::fabs(v) <= emptyEps && std::fabs(e) <= emptyEps) continue;
+        
+          sumNonZero += v;
+          ++nNonZero;
+        }
+        
+        const double histAvg = (nNonZero > 0) ? sumNonZero / nNonZero : 0.0;
+
+        // Compute simple Fourier-like estimates for initial p1, p2
+        double sumC1 = 0.0, sumC2 = 0.0;
+        double sumC1C1 = 0.0, sumC2C2 = 0.0;
+        double sumW = 0.0;
+        
+        for (int b = 1; b <= nBins; ++b) {
+          const double v = h->GetBinContent(b);
+          const double e = h->GetBinError(b);
+        
+          // skip empty bins
+          if (std::fabs(v) <= emptyEps && std::fabs(e) <= emptyEps) continue;
+        
+          const double phi_deg = h->GetXaxis()->GetBinCenter(b);
+          const double phi = phi_deg * TMath::Pi() / 180.0;
+        
+          // weight by 1/σ² if available, else 1
+          const double w = (e > emptyEps) ? 1.0/(e*e) : 1.0;
+        
+          const double c1 = std::cos(phi);
+          const double c2 = std::cos(2*phi);
+        
+          const double y = v - histAvg; // subtract mean so p0 is separate
+        
+          sumW      += w;
+          sumC1     += w * y * c1;
+          sumC2     += w * y * c2;
+          sumC1C1   += w * c1 * c1;
+          sumC2C2   += w * c2 * c2;
+        }
+        
+        double p0_init = std::max(1e-12, std::max(0.0, histAvg)); // keep your non-negative p0 logic
+        double p1_init = 0.0;
+        double p2_init = 0.0;
+        
+        if (sumC1C1 > 0) p1_init = sumC1 / sumC1C1;
+        if (sumC2C2 > 0) p2_init = sumC2 / sumC2C2;
+        
+        // Set initial parameters
+        fphi.SetParameters(p0_init, p1_init, p2_init);
+
+        double scale = std::max(histAvg, 1.0);  // fallback scale if histAvg is tiny
+        fphi.SetParLimits(0, 0.0, 20.0*scale);   // p0: non-negative, not absurdly huge
+        fphi.SetParLimits(1, -10.0*scale, 10.0*scale); // p1
+        fphi.SetParLimits(2, -10.0*scale, 10.0*scale); // p2
+
+        
 
         // Build a TGraphErrors of points (apply all cuts)
         //  - skip bins with (v==0 && e==0) within emptyEps
@@ -283,11 +348,6 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
         gr.GetXaxis()->SetTitle("#phi_{Trento} [deg]");
         gr.GetYaxis()->SetTitle("Unfolded counts");
 
-        // Initial guesses use the same histogram average
-        const double avg = std::max(0.0, histAvg);
-        fphi.SetParameters(std::max(1e-12, avg), 0.0, 0.0); // [0]=p0, [1]=p1, [2]=p2
-        fphi.SetParNames("p0","p1","p2");
-        fphi.SetParLimits(0, 0.0, 1e12);
 
         // Fit the graph (quiet + return result)
         TFitResultPtr r = gr.Fit(&fphi, "QS");
@@ -325,15 +385,18 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
         lat.DrawLatex(0.15, 0.77, Form("p1 = %.4g", fphi.GetParameter(1)));
         lat.DrawLatex(0.15, 0.73, Form("p2 = %.4g", fphi.GetParameter(2)));
 
-        c.SaveAs(TString::Format("%s/%s.png", plotDir, hname.Data()));
 
         // Save result row
         out_ix  = ix;
         out_iz  = iz;
         out_iPt = ipt;
         out_p0  = fphi.GetParameter(0);
+        out_p1  = fphi.GetParameter(1);
+        out_p2  = fphi.GetParameter(2);
         t.Fill();
 
+        c.SaveAs(TString::Format("%s/%s.png", plotDir, hname.Data()));
+        
         // tidy
         delete hplot;
 
@@ -353,8 +416,8 @@ void fit_phi_slices(const char* inPhiFile   = "phi_slices.root",
 
 // -------------- Convenience driver ----------------------------
 void make_phi_slices(const char* inFile    = "",
-                     const char* sparseDir = "unfold_Bayes_iter1",
-                     const char* outFile   = "phi_slices.root",
+                     const char* sparseDir = "",
+                     const char* outFile   = "",
                      double emptyEps       = 0.0,
                      int    max_ix         = 16)  // cap xQ2 to 16 by default
 {
@@ -368,6 +431,10 @@ void make_phi_slices(const char* inFile    = "",
   if (!h2) { cerr << "ERROR: reconstruction failed\n"; return; }
 
   // Split to φ histograms (respect max_ix)
+  cout<<max_ix<<" "<<N_Zbins<<" "<<N_pTbins_with_overflow<<" "<<N_phiTrbins<<endl;
+  //16 8 11 8
+
+  
   SplitPhiHists(h2.get(), outFile, emptyEps,
                 /*max_ix=*/max_ix,
                 /*nZ=*/N_Zbins,
@@ -378,8 +445,14 @@ void make_phi_slices(const char* inFile    = "",
 // Run the full chain: rebuild -> slice -> fit
 // 1) make_phi_slices(unfoldFile, sparseDir, phiSlicesFile, emptyEps, max_ix)
 // 2) fit_phi_slices (phiSlicesFile, fitOutFile, plotDir, emptyEps, max_ix, N_Zbins, N_pTbins_with_overflow)
-void fit_phi_unfolded(const char* unfoldFile    = "",
-                      const char* sparseDir     = "unfold_Bayes_iter1",
+// run_iter5/unfold_bayes_it5.root
+//unfold_Bayes_iter5
+
+
+//unfold_RooUnfoldBinByBin
+
+void fit_phi_unfolded(const char* unfoldFile    = "rooUnfold_bbb/unfold_out_roo_bbb.root",
+                      const char* sparseDir     = "unfold_RooUnfoldBinByBin",
                       const char* phiSlicesFile = "phi_slices.root",
                       const char* fitOutFile    = "phi_fit_results.root",
                       const char* plotDir       = "phi_fit_plots",

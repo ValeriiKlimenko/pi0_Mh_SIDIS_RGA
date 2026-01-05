@@ -324,11 +324,11 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
 
         tout.Branch("xq2bin",             &out_xq2);
         tout.Branch("z_pt2_phi_bin",      &out_zpt2phi);
-        tout.Branch("z_pt2_phi_hist_bin", &out_zpt2phi_hist_bin);
+        //tout.Branch("z_pt2_phi_hist_bin", &out_zpt2phi_hist_bin);
 
         // NEW: write decoded bins to tree
-        tout.Branch("zbin",               &out_zbin);
-        tout.Branch("pt2bin",             &out_pt2bin);
+        //tout.Branch("zbin",               &out_zbin);
+        //tout.Branch("pt2bin",             &out_pt2bin);
 
       
         tout.Branch("nPions",             &out_nPions);
@@ -456,8 +456,8 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic,
     tout.Branch("xq2bin_gen",             &out_xq2g);
     tout.Branch("z_pt2_phi_bin",          &out_zpt2phi);
     tout.Branch("z_pt2_phi_bin_gen",      &out_zpt2phi_gen);
-    tout.Branch("z_pt2_phi_hist_bin",     &out_zpt2phi_hist_bin);
-    tout.Branch("z_pt2_phi_hist_bin_gen", &out_zpt2phi_hist_bin_gen);
+    //tout.Branch("z_pt2_phi_hist_bin",     &out_zpt2phi_hist_bin);
+    //tout.Branch("z_pt2_phi_hist_bin_gen", &out_zpt2phi_hist_bin_gen);
     tout.Branch("nPions",                 &out_nPions);
     tout.Branch("errPions",               &out_errPions);
 

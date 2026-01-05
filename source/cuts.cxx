@@ -647,9 +647,33 @@ enum sampleType {
 
 
 //////////////////////////////////////// List of cuts: /////////////////////////////////////
-string GetMainCuts(bool isMC){
+string GetDisCuts(){
+
+    string list_of_cuts = "y < 0.75  && (e_mom > 2 && e_mom < 8)"; 
+    //Replaced by Timothy + Richard's code
+    list_of_cuts             += " && Q2 > 1.5 && W > 2";//change q2 > 2 later  
+    // ID/Fid Cuts are added by Valerii:
+    list_of_cuts             += "&& e_vz > -8. && e_vz < 2.";
+    list_of_cuts             += "&& cut_pcal_fid_el";
+    list_of_cuts             += "&& DC_cut && SF_cut";
+    return list_of_cuts;
+}
+
+string GetDisCuts_Gen(){
+
+    string list_of_cuts = "y < 0.75  && (e_mom > 2 && e_mom < 8)"; 
+    //Replaced by Timothy + Richard's code
+    list_of_cuts             += " && Q2 > 1.5 && W > 2";//change q2 > 2 later, Feynman X > 0    
+    // ID/Fid Cuts are added by Valerii:
+    return list_of_cuts;
+
+}
+
+
+
+string GetMainCuts(bool isMC, int mx_cut_mode){
     
-    string list_of_cuts = "y < 0.75 && pi0_sidis_PT2 < 1.5 && Mx > 1.5 && (e_mom > 2 && e_mom < 8)"; // Missing mass > 1.5
+    string list_of_cuts = "y < 0.75 && pi0_sidis_PT2 < 1.5 && (e_mom > 2 && e_mom < 8)"; // Missing mass > 1.5
     //Replaced by Timothy + Richard's code
     list_of_cuts             += "&& g1b > 0.9 && g1b < 1.1 && g2b > 0.9 && g2b < 1.1"; // photon beta cuts
     list_of_cuts             += "&& g1_mom > 0.5 && g2_mom > 0.5 && pi0_E > 0.125";//Stefan
@@ -660,6 +684,11 @@ string GetMainCuts(bool isMC){
     list_of_cuts             += "&& e_vz > -8. && e_vz < 2.";
     list_of_cuts             += "&& cut_pcal_fid_el && cut_pcal_fid_g1 && cut_pcal_fid_g2";
     list_of_cuts             += "&& DC_cut && SF_cut && isEventINbins";
+
+    if (mx_cut_mode == 1) list_of_cuts             +=  "&& Mx > 1.";
+    if (mx_cut_mode == 2) list_of_cuts             +=  "&& Mx > 1.5";
+
+  
     //list_of_cuts             += "&& DC_cut && SF_cut";
     // elec triag cut.
 
@@ -673,8 +702,11 @@ string GetMainCuts(bool isMC){
 
 
 // for gen distrib:
-string GetMainCuts_Gen(){
-    string list_of_cuts = "y < 0.75 && pi0_sidis_PT2 < 1.5 && Mx > 1.5 && (e_mom > 2 && e_mom < 8) && Q2 > 1.5 && W > 2 && isEventINbins"; 
+string GetMainCuts_Gen(int mx_cut_mode){
+  
+    string list_of_cuts = "y < 0.75 && pi0_sidis_PT2 < 1.5 && (e_mom > 2 && e_mom < 8) && Q2 > 1.5 && W > 2 && isEventINbins"; 
+    if (mx_cut_mode == 1) list_of_cuts             +=  "&& Mx > 1.";
+    if (mx_cut_mode == 2) list_of_cuts             +=  "&& Mx > 1.5";
     return list_of_cuts;
 }
 
