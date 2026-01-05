@@ -1,6 +1,7 @@
 #include "gen_root_files.C"
 
-void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
+void gen_root_files_gen_dis(string inputPath, string hipoFile, string outputPath){
+  
   //Graph styles
   gROOT->SetStyle("Plain");
   gStyle->SetOptFit(1);
@@ -12,10 +13,9 @@ void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
   gStyle->SetPadLeftMargin(0.14);
   gStyle->SetPadRightMargin(0.14);
 
-
   //Gathering the file names from nSidis_files_mc_rec.txt
   HipoChain chain;
-  chain.Add((inputPath + hipoFile).c_str());
+  chain.Add((inputPath  + '/' + hipoFile).c_str());
   TString outputFile = Form("%s%s.root", outputPath.c_str(), hipoFile.c_str());
   outputFile.ReplaceAll(".hipo", "");
 
@@ -81,7 +81,7 @@ void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
       
         qVec = (TLorentzVector){0, 0, sqrt(b_E*b_E - p4_ele.M2()), b_E} - p4_ele;
 
-        if (qVec.E() / b_E >= 0.8){goodRecEle = 0;}//y cut
+        if (qVec.E() / b_E >= 0.75){goodRecEle = 0;}//y cut
         if ((pro + qVec).M() <= 2){goodRecEle = 0;}//W cut
         e_s = ele[0]->cal(PCAL)->getSector();
 

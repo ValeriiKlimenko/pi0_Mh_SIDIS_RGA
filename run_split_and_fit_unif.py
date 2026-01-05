@@ -33,7 +33,6 @@ def parse_args():
     )
     ap.add_argument(
         "--subdir",
-        choices=["unfolding_rec_data", "unfolding_rec_true", "unfolding_rec_fake"],
         default="unfolding_rec_data",
         help="Folder (under BASE_PATH) containing input .root files.",
     )
@@ -115,8 +114,8 @@ if __name__ == "__main__":
 
     # infer logic from subdir if requested
     logic = args.logic
-    if logic == "auto":
-        logic = "data" if args.subdir == "unfolding_rec_data" else "sim"
+    #if logic == "auto":
+    #    logic = "data" if args.subdir == "unfolding_rec_data" else "sim"
 
     # build input directory
     mypath = BASE_PATH / args.subdir
