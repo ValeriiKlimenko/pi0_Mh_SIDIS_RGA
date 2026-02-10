@@ -1,3 +1,4 @@
+// ------------------------------------------------------------------------------------------
 // File: fit_phi_unfolded_1D.C
 //
 // Usage examples (ROOT):
@@ -17,6 +18,9 @@
 //   RESP::nZ  = N_Zbins * N_pTbins_with_overflow * N_phiTrbins + 1
 //   global_bin = xq2bin * nZ + z_pt2_phi_bin
 //   TH1D axis: nTot = nX*nZ bins, x from -0.5 .. nTot-0.5, bin i center = (i-1)
+// ------------------------------------------------------------------------------------------
+
+
 
 #include "TFile.h"
 #include "TDirectory.h"
@@ -50,8 +54,9 @@ using std::endl;
 #include "binning_params.cxx"   // N_Zbins, N_pTbins_with_overflow, N_phiTrbins
 
 // ----------------------------------------------------------------------
-//  Geometry helpers (must match unfold_onepass_1D.cxx) 
+//  Geometry helpers (must match unfold_onepass_1D.cxx)
 // ----------------------------------------------------------------------
+
 namespace RESP1D {
   static const int    nX   = 21;   // xq2bin: 0..20
   static const double x_lo = -0.5;
@@ -69,6 +74,7 @@ namespace RESP1D {
 }
 
 // Map (z_bin, x_bin) -> global 1D bin index (same as unfold_onepass_1D.cxx)
+
 static inline int GlobalBinIndex1D(int z_bin, int x_bin) {
   return x_bin * RESP1D::nZ + z_bin;   // z is the fast index
 }
@@ -83,8 +89,9 @@ static inline int GlobalBinIndex1D(int z_bin, int x_bin) {
 //     ...
 //     /ix02/z01/...
 // ----------------------------------------------------------------------
+
 static void SplitPhiHists1D(const TH1D* h1,
-                            const char* outFile       = "phi_slices_1D.root",
+                            const char* outFile       = "phi_slices.root",
                             double      emptyEps      = 0.0,
                             int         max_ix        = 16, // cap xQ2 to 16 by default
                             int         nZ            = N_Zbins,
@@ -435,13 +442,13 @@ void fit_phi_slices_1D(const char* inPhiFile   = "phi_slices_1D.root",
 //   2) split into phi slices with SplitPhiHists1D
 //   3) fit all phi slices with fit_phi_slices_1D
 // ----------------------------------------------------------------------
-void fit_phi_unfolded_1D(const char* unfoldFile    = "unfold_out_bayes.root",
-                         const char* hname         = "unfold_Bayes_iter5",
+void fit_phi_unfolded_1D(const char* unfoldFile    = "unfold_bayes_iter01.root",
+                         const char* hname         = "unfold_Bayes_iter01",
                          const char* phiSlicesFile = "phi_slices_1D.root",
                          const char* fitOutFile    = "phi_fit_results_1D.root",
                          const char* plotDir       = "phi_fit_plots_1D",
                          double       emptyEps     = 0.0,
-                         int          max_ix       = 17)  // cap xQ2 to 16 by default
+                         int          max_ix       = 16)  // cap xQ2 to 16 by default
 {
   TFile fin(unfoldFile, "READ");
   if (fin.IsZombie()) {

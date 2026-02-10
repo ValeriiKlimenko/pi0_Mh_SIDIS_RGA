@@ -142,14 +142,14 @@ void add_binning(const string full_file_path,
       rec = "dis_gen_added_binning";
   }
 
-    // ensure: <dir>/<rec>/<stem>/ exists
-    fs::path out_dir = dir / rec;
-    std::error_code ec;
-    fs::create_directories(out_dir, ec);
-    if (ec) {
-        std::cerr << "Failed to create directories: " << out_dir << " : " << ec.message() << "\n";
-        return;
-    }
+  // ensure: <dir>/<rec>/<stem>/ exists
+  fs::path out_dir = dir / rec;
+  std::error_code ec;
+  fs::create_directories(out_dir, ec);
+  if (ec) {
+      std::cerr << "Failed to create directories: " << out_dir << " : " << ec.message() << "\n";
+     return;
+  }
 
 
   string name_ending = "_out.root";

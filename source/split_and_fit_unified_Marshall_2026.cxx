@@ -53,8 +53,9 @@
 #include "TPad.h"
 #include "TROOT.h"
 
-#include "fit_pi0_mass.cxx"  // SkipDecision, PrecheckHistogram, FitResult, FitPi0Mass
 #include "binning_params.cxx"  
+#include "functions_fitting_2026_marshall.cxx"  // SkipDecision, PrecheckHistogram, FitResult, FitPi0Mass
+
 
 // --- Z⊗pT2⊗phi binning constants from  scheme ---
 static constexpr int kNphi = 8;                  // N_phiTrbins
@@ -291,7 +292,7 @@ static void split_and_fit_unified(const std::string& path_to_root, Logic logic, 
         throw std::runtime_error("Failed to open ROOT file: " + in_path.string());
     }
 
-    const std::string out_root = folder + '/' + stem + "_fitted.root";
+    const std::string out_root = folder + '/' + stem + "_fitted_Marshall.root";
     TFile fout(out_root.c_str(), "RECREATE");
 
     std::string out_pngs_base =
@@ -610,7 +611,7 @@ void split_and_fit(const std::string& path_to_xQ2bin_th3d) {
 // Optional switch with explicit flag; png_every<=0 uses defaults (30 data, 10 sim)
 void split_and_fit_switch(const std::string& path, const std::string& logic, int isNoPhi = 0, int png_every = -1) {
     if (logic == "data" || logic == "DATA")
-        split_and_fit_unified(path, Logic::Data, png_every);
+        split_and_fit_unified(path, Logic::Data, isNoPhi, png_every);
     else if (logic == "sim" || logic == "SIM" || logic == "mc" || logic == "MC")
         split_and_fit_unified(path, Logic::Sim, isNoPhi, png_every);
     else

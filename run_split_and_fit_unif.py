@@ -71,6 +71,16 @@ def parse_args():
         action="store_true",
         help="Use '++' on .L to force rebuild of the macro.",
     )
+  
+    ap.add_argument(
+        "--noPhiBinning",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="Integrate over phi.",
+    )
+
+  
     return ap.parse_args()
 
 def screen_ls():
@@ -114,6 +124,7 @@ if __name__ == "__main__":
 
     # infer logic from subdir if requested
     logic = args.logic
+    noPhiBinning = args.noPhiBinning
     #if logic == "auto":
     #    logic = "data" if args.subdir == "unfolding_rec_data" else "sim"
 
@@ -153,7 +164,7 @@ if __name__ == "__main__":
         build_line = f'gSystem->SetBuildDir("{build_dir}", kTRUE)'
         plus = "++" if args.force_rebuild else "+"
         load_line = f'.L {macro_path}{plus}'
-        run_line  = f'split_and_fit_switch("{file_for_root}", "{logic}", {int(args.png_every)})'
+        run_line  = f'split_and_fit_switch("{file_for_root}", "{logic}", {noPhiBinning}, {int(args.png_every)})'
 
         # Ensure build dir exists before ROOT starts
         mkdir_cmd = f'mkdir -p {shlex.quote(str(build_dir))}'

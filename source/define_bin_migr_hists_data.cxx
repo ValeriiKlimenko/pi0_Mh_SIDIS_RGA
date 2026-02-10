@@ -140,10 +140,12 @@ CollectFilesWithTreeAndColumns(const std::string& dir,
 
 void define_bin_migr_hists_data(const std::string& dir,
                                 const std::string& outDir,
+                                int isNoPhi = 0,
                                 const std::string& tree    = "h22",
                                 int nx                     = 80,
                                 int ny                     = 80,
-                                int nz                     = 40)
+                                int nz                     = 40
+                                )
 {
   // Unbuffered stdout so we see progress as it happens
   std::cout.setf(std::ios::unitbuf);
@@ -152,7 +154,7 @@ void define_bin_migr_hists_data(const std::string& dir,
 
   // Axes/columns:
   const std::string aCol = "bin_xBQ2_Valerii";   // X-axis (integer bin id)
-  const std::string xCol = "zpt2phit_8x8x9";     // Y-axis (integer/ID-like)
+  const std::string xCol = (isNoPhi == 0) ? "zpt2phit_8x8x9" : "zpt2phit_8x8x9_nophi";     // Y-axis (integer/ID-like)
   const std::string zCol = "pi0_m";              // Z-axis (mass)
 
   // --- Build a schema-uniform file list

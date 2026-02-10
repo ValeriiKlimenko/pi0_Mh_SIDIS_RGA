@@ -1,5 +1,7 @@
 #include "gen_root_files.C"
 #include "Kinem_Funcs.C"
+#include <iguana/algorithms/clas12/PhotonGBTFilter/Algorithm.h>
+
 
 void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
   //Graph styles
@@ -25,6 +27,33 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
   TLorentzVector p4_gamma2;
   TLorentzVector p4_ele(0, 0, 0, m_e);
 
+
+
+
+  // create iguana algorithms
+  iguana::clas12::PhotonGBTFilter  algo_photon;   // filter the z-vertex (a filter algorithm)
+  algo_photon.Start();
+
+  auto iguana_action = [
+       // capture the algorithm instances; use the ampersand (`&`) to capture them by reference
+       &algo_photon,
+     ](clas12::clas12reader* cr)
+     {
+      // next, let's apply the fiducial cuts; we'll skip FT cuts for this example, but take a look
+      // at the algorithm's documentation for other `Run` functions that use FT data
+      if(!algo_photon.Run(
+            cr->getRECParticle(),    // REC::Particle
+            cr->getRECCalorimeter(), // REC::Calorimeter
+            cr->getRUNconfig(),      // RUN::config
+            )) return false;
+  
+      // all algorithms are done, return true to keep the event
+      // (otherwise return false if you have some reason to not keep the event)
+      return true;
+  };
+
+  
+
   //Loop over files
   for(int ifile=0;ifile<chain.GetNFiles();++ifile){
     clas12reader c12{chain.GetFileName(ifile).Data()};
@@ -32,6 +61,7 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
     //Golden runs
     clas12databases db;
     c12.connectDataBases(&db);
+    c12.SetReadAction(iguana_action);
 
     c12.applyQA("pass2");
     c12.db()->qadb_addQARequirement("MarginalOutlier");
@@ -69,12 +99,18 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
                               "g2_pcalE","g2_ecinE","g2_ecoutE",
                               //electrons Vz:
                                "e_vz", "e_sec_DC", 
-                               "e_edge_R1", "e_edge_R2", "e_edge_R3"
+                               "e_edge_R1", "e_edge_R2", "e_edge_R3",
+                                //iguana:
+                                "PhotonGBTF"
+    
                                };
     vector <double> add(bList.size());
     for (int i = 0; i < bList.size(); i++){
       tt->Branch(bList[i].c_str(), &add[i], (bList[i] + "/D").c_str());
     }
+
+
+    
     
     //Loop over all events in the file
     int countEvt=0;
@@ -132,6 +168,10 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
              double g1b = gammas[i]->par()->getBeta();
              double g2b = gammas[j]->par()->getBeta();
 
+             // iguana PhotonGBTFilter bool for gamma1 and gamma2:
+             bool PGBT_gamama1 = 0;
+             bool PGBT_gamama2 = 0;
+
              add = {p4_ele.Px(), p4_ele.Py(), p4_ele.Pz(), (double)e_s, ev, ew,
                     p4_gamma1.Px(), p4_gamma1.Py(), p4_gamma1.Pz(), (double)ga_s1, g1v, g1w, (double)g1_s[0], g1b,
                     p4_gamma2.Px(), p4_gamma2.Py(), p4_gamma2.Pz(), (double)ga_s2, g2v, g2w, (double)g2_s[0], g2b,
@@ -173,4 +213,6 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
     //tf->Print();
     //tf->Close();
   }//File loop
+
+  algo_photon.Stop();
 }//Function 

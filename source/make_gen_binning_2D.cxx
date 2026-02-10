@@ -21,14 +21,13 @@ namespace RESP {
   static const double x_lo = -0.5;
   static const double x_hi = x_lo + nX;
 
-  static const int    nZ   = N_Zbins * N_pTbins_with_overflow * N_phiTrbins + 1;
   static const double z_lo = -0.5;
-  static const double z_hi = z_lo + nZ;
 }
 
 // Returns 0 on success
 int make_gen_binning_2D(const char* miss_dir = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/gen_binning",
-                        const char* out_file = "gen_binning_2D.root")
+                        const char* out_file = "gen_binning_2D.root",
+                        int isNoPhi = 0)
 {
   // (1) Build the file list single-threaded as before
   std::vector<std::string> files;
@@ -59,13 +58,27 @@ int make_gen_binning_2D(const char* miss_dir = "/lustre24/expphy/volatile/clas12
   using namespace RESP;
   ROOT::RDataFrame df("h22", files);
 
+  // Choose which column to histogram on Y
+  const char* zvar = (isNoPhi == 1) ? "zpt2phit_8x8x9_nophi" : "zpt2phit_8x8x9";
+
+
+  const int nZ = (isNoPhi == 1)
+      ? (N_Zbins * N_pTbins_with_overflow + 1)  
+      : (N_Zbins * N_pTbins_with_overflow * N_phiTrbins + 1);
+
+  const double z_lo = RESP::z_lo;
+  const double z_hi = z_lo + nZ;
+
+  // Build a matching axis title
+  std::string htitle = std::string("Truth-like;bin_xBQ2_Valerii;") + zvar;
+
   auto h2 = df.Histo2D(
       ROOT::RDF::TH2DModel(
           "h2_binX_vs_z",
-          "Truth-like;bin_xBQ2_Valerii;zpt2phit_8x8x9",
+          htitle.c_str(),
           RESP::nX, RESP::x_lo, RESP::x_hi,
-          RESP::nZ, RESP::z_lo, RESP::z_hi),
-      "bin_xBQ2_Valerii", "zpt2phit_8x8x9");
+          nZ, z_lo, z_hi),
+      "bin_xBQ2_Valerii", zvar);
 
   TFile fout(out_file, "RECREATE");
   if (fout.IsZombie()) {

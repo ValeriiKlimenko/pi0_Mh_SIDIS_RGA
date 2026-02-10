@@ -11,6 +11,7 @@ import sys
 
 # Fixed settings
 BASE_DATA_DIR = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_data/"
+BASE_DATA_DIR_MC = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/"
 MACRO_PATH    = "source/define_bin_migr_hists_data.cxx"
 COMPILE_MACRO = False  # use ACLiC (+). Set False to interpret.
 
@@ -25,13 +26,13 @@ def _q(s: str) -> str:
     """Escape for embedding in ROOT command lines."""
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
-def run_with_root_cli_link_first(dir_, outdir):
+def run_with_root_cli_link_first(dir_, outdir, noPhiBinning):
     if shutil.which("root") is None:
         raise SystemExit("ERROR: 'root' executable not found in PATH.")
     plus = "+" if COMPILE_MACRO else ""
     cmds = [
         f'.L {MACRO_PATH}{plus}',
-        f'define_bin_migr_hists_data("{_q(dir_)}","{_q(outdir)}")',
+        f'define_bin_migr_hists_data("{_q(dir_)}","{_q(outdir)}", {noPhiBinning})',
         '.q',
     ]
     cmd_stream = "\n".join(cmds) + "\n"
@@ -76,7 +77,26 @@ def main():
         ),
     )
 
+    p.add_argument(
+        "--noPhiBinning",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="Integrate over phi.",
+    )
+
+    p.add_argument(
+        "--noPhiBinning_forMC",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="use mc path, no phi rec uses the same structure as no phi data.",
+    )
+
     args = p.parse_args()
+    noPhiBinning = int(args.noPhiBinning)
+    noPhiBinning_forMC = int(args.noPhiBinning_forMC)
+
 
     # Decide directory: explicit --dir wins, otherwise use mx-cut-mode mapping
     if args.dir is not None:
@@ -86,19 +106,20 @@ def main():
         dir_name = MX_DIR_MAP[args.mx_cut_mode]
         mx_info = f"(from mx_cut_mode={args.mx_cut_mode})"
 
-    full_dir = os.path.join(BASE_DATA_DIR, dir_name)
+    used__path = BASE_DATA_DIR_MC if noPhiBinning_forMC else BASE_DATA_DIR
+    full_dir = os.path.join(used__path, dir_name)
     outdir = f"unfolding_{dir_name}"  # e.g. unfolding_data_noMxcut/
 
     if not os.path.isdir(os.path.dirname(full_dir)) and not os.path.isdir(full_dir):
         print(f"Warning: constructed data dir does not exist: {full_dir}", file=sys.stderr)
 
-    print(f"Base data dir : {BASE_DATA_DIR}")
+    print(f"Base data dir : {used__path}")
     print(f"Directory     : {dir_name} {mx_info}")
     print(f"Full input dir: {full_dir}")
     print(f"Output folder : {outdir}")
     print(f"Macro         : {MACRO_PATH}  ({'compile +' if COMPILE_MACRO else 'interpret'})")
 
-    run_with_root_cli_link_first(full_dir, outdir)
+    run_with_root_cli_link_first(full_dir, outdir, noPhiBinning)
     print("Done.")
 
 if __name__ == "__main__":

@@ -89,9 +89,10 @@ module_cmd = (
 )
 
 # LD_LIBRARY_PATH inside each screen (updated to new versions)
+# LD_LIBRARY_PATH inside each screen (keep if you still want it alongside modules)
 LD_EXPORT = (
   'export LD_LIBRARY_PATH='
-  '"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.8.6b/4.3.0/lib64:'
+  '"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.9.0/4.3.0/lib64:'
   '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.7/lib:'
   '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.36.04/lib:'
   '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/python/3.13.7/lib:'
@@ -99,6 +100,7 @@ LD_EXPORT = (
   '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:'
   '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:${LD_LIBRARY_PATH-}"'
 )
+
 
 # --- main loop over discovered files ---
 for base_dir, abs_path, rel_path in files:

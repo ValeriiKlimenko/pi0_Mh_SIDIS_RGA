@@ -34,7 +34,8 @@ running_jobs() {
 }
 
 # LD_LIBRARY_PATH export to run inside each screen (note the escaped quotes and \$)
-LD_EXPORT="export LD_LIBRARY_PATH=\"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.30.04/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.8.5/4.2.0/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.6/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/iguana/0.8.0/4.2.0/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.2.0/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:\${LD_LIBRARY_PATH-}\""
+LD_EXPORT="export LD_LIBRARY_PATH=\"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.9.0/4.3.0/lib64:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.7/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.36.04/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/python/3.13.7/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.3.0/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:\${LD_LIBRARY_PATH-}\""
+
 
 # --- main loop ---
 for file in "${files[@]}"; do

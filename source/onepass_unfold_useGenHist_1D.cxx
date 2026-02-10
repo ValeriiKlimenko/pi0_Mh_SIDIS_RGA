@@ -798,7 +798,7 @@ static int unfold_bayes_save_each_iter(const ResponseBundle& pack,
 // or similar.
 
 int onepass_unfold(const char* method = "",
-                   int nIter = 9,
+                   int nIter = 5,
                    const char* out_bayes = "unfold_out_bayes.root",
                    const char* out_bbb   = "unfold_out_bbb.root",
                    bool write_response_snapshot = false)

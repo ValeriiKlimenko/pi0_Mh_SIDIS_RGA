@@ -97,8 +97,19 @@ def main():
         help="Applies Parent/daugh. cut on MC rec gammas.",
     )
 
+    # not implemented there
+    p.add_argument(
+        "--noPhiBinning",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="Integrate over phi.",
+    )
+
     args = p.parse_args()
     is_mc_parent_cuts = int(args.isMCParentCut)
+    noPhiBinning = int(args.noPhiBinning)
+
 
     # Decide directory: explicit --dir wins, otherwise use mx-cut-mode mapping
     if args.dir is not None:
