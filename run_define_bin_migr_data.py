@@ -108,7 +108,14 @@ def main():
 
     used__path = BASE_DATA_DIR_MC if noPhiBinning_forMC else BASE_DATA_DIR
     full_dir = os.path.join(used__path, dir_name)
-    outdir = f"unfolding_{dir_name}"  # e.g. unfolding_data_noMxcut/
+
+    # Use only the last path element for output folder naming
+    if "/" in dir_name:
+        outdir_name = os.path.basename(os.path.normpath(dir_name))
+    else:
+        outdir_name = dir_name
+
+    outdir = f"unfolding_{outdir_name}"
 
     if not os.path.isdir(os.path.dirname(full_dir)) and not os.path.isdir(full_dir):
         print(f"Warning: constructed data dir does not exist: {full_dir}", file=sys.stderr)

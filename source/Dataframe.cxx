@@ -1,5 +1,8 @@
 using namespace std;
 
+#include <TLorentzVector.h>
+#include <TRandom.h>
+
 #include "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/source/cuts.cxx"
 
  // Mars's one:
@@ -49,7 +52,7 @@ ROOT::RDF::RNode AddDefine_RecDisMC(ROOT::RDF::RNode node)
 
 
 
-/// Columns for cuts only. They are used in CSB estimation only for now.
+/// Columns for ELECTRON cuts only.
 ROOT::RDF::RNode AddDefine_CutsCol(ROOT::RDF::RNode node)
 {
    return node.Define("strict",            get_cuts_strictness,   {})
@@ -62,7 +65,6 @@ ROOT::RDF::RNode AddDefine_CutsCol(ROOT::RDF::RNode node)
                                                                         "e_ecin_Lw", "e_ecin_Lv", "e_ecin_Lu",
                                                                         "e_ecout_Lw", "e_ecout_Lv", "e_ecout_Lu",
                                                                         "esec_int","strict"}) 
-
 
               .Define("DC_cut",       cut_DC_edge,        {"e_edge_R1","e_edge_R2","e_edge_R3", "strict"}) 
               .Define("SF_cut",       cut_SF,        {"SF_full","e_mom","esec_int", "strict"});
@@ -188,9 +190,27 @@ ROOT::RDF::RNode AddDefine_Kinematics_GenOnly(ROOT::RDF::RNode node)
               .Define("xF",                   xF,               {"pi0_P", "q", "W2"})//Mimics the definition on the github as of 10/27/2021
               .Define("isEventINbins",       ctx.isEventInBins,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
               .Define("zpt2phit_8x8x9_nophi",       ctx.zpt2phit_8x8x9_nophi,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
-              .Define("zpt2phit_8x8x9",       ctx.zpt2phit_8x8x9,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
+              .Define("zpt2phit_8x8x9",       ctx.zpt2phit_8x8x9,   {"xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"})
+              // forgot to sace REC sector so GEN sector is used, it should be good enough.
+              .Define("e_P_rec",                  Get4mom_corr,      {"ex_rec", "ey_rec", "ez_rec", "esec"})
+              .Define("q_rec",                    q,                {"e_P_rec"})
+              .Define("Q2_rec",                   Q2,               {"q_rec"})
+              .Define("W2_rec",                   W2,               {"q_rec"})//Mimics others
+              .Define("W_rec",                                      "return sqrt(W2_rec);")
+              .Define("xB_rec",                   xB,               {"Q2_rec", "q_rec"})
+              .Define("y_rec",                    y,                {"q_rec"})//Mimic others
+              .Define("bin_xBQ2_Valerii_rec",        ctx.bin_xBQ2,    {"xB_rec", "Q2_rec"});
   
 }
+
+// additional cut columns for GEN sample to turn GEN (NO CUTS) into GEN(ALL DIS CUTS ONLY) which should be equal to REC(DIS CUTS ONLY)
+// besides Mx>1.5 cur supression
+// use AddDefine_CutsCol
+
+
+
+
+
 ////////////// for Rec Only:
 
 ROOT::RDF::RNode AddDefine_Kinematics_RecOnly(ROOT::RDF::RNode node)

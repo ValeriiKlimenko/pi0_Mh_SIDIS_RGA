@@ -1,4 +1,5 @@
 #include "gen_root_files.C"
+#include <iguana/algorithms/clas12/PhotonGBTFilter/Algorithm.h>
 #include <cmath>
 
 
@@ -13,6 +14,22 @@ bool comparelTuple(lTuple lt1, lTuple lt2){
   double res1 = pow(get<3>(lt1), 2) + pow(get<4>(lt1), 2) + 0*pow(get<5>(lt1), 2);
   double res2 = pow(get<3>(lt2), 2) + pow(get<4>(lt2), 2) + 0*pow(get<5>(lt2), 2);
   return res1 < res2;
+}
+
+// Construct a minimal RUN::config bank with 1 row and only the "run" field.
+static hipo::schema s_cfg("RUN::config", 0, 0);  // group/item don't matter if you're not writing it out
+static bool s_init = false;
+
+hipo::bank makeRunConfigBank_min(int runnum)
+{
+  if(!s_init){
+    s_cfg.parse("run/I");  // I = int :contentReference[oaicite:1]{index=1}
+    s_init = true;
+  }
+
+  hipo::bank cfg(s_cfg, 1);        // 1 row :contentReference[oaicite:2]{index=2}
+  cfg.putInt("run", 0, runnum);    // set run for row 0 :contentReference[oaicite:3]{index=3}
+  return cfg;
 }
 
 //Function returns the angular distance squared between the rec and gen events
@@ -77,7 +94,7 @@ void fixDup(vector<vector<lTuple>> &inMat){
 }
 
 
-void gen_root_files_rec(string inputPath, string hipoFile, string outputPath){
+void gen_root_files_rec(string inputPath, string hipoFile, string outputPath, bool is_greg_ai = false){
 
   //Gathering the file names from nSidis_files_mc_rec.txt
   HipoChain chain;
@@ -97,10 +114,25 @@ void gen_root_files_rec(string inputPath, string hipoFile, string outputPath){
   TLorentzVector p4_g2;
   TLorentzVector p4_ele(0, 0, 0, m_e);
   double pi = TMath::Pi();
+  
+  // create iguana algorithms
+  iguana::clas12::PhotonGBTFilter  algo_photon;   // filter the z-vertex (a filter algorithm)
+  algo_photon.SetOption("pass", 2);  
+  algo_photon.SetOption("o_threshold", 0.78);  
+  algo_photon.Start();
 
+  // replace the whole `get_algo_photon_gs` lambda with this:
+  auto photon_action = [&algo_photon](clas12::clas12reader* cr)
+  {
+    hipo::bank cfg = makeRunConfigBank_min(5033); // MC run number
+    algo_photon.Run(cr->getRECParticle(), cr->getRECCalorimeter(), cfg);
+    return true; // keep the event; filtered photons will be available via getByID(..., true)
+  };
+  
   //Loop over files
   for(int ifile=0;ifile<chain.GetNFiles();++ifile){
     clas12reader c12{chain.GetFileName(ifile).Data()};
+    c12.SetReadAction(photon_action);
 
     //Particle selection
     c12.addExactPid(11,1);   //exactly 1 electron
@@ -234,8 +266,14 @@ void gen_root_files_rec(string inputPath, string hipoFile, string outputPath){
         get<4>(evec[i]) = dphi;//0.2
       } 
       sort(evec.begin(), evec.end(), comparelTuple);
-            
-      auto gs=c12.getByID(22);
+
+      //auto gs_all = c12.getByID(22);
+      auto gs  = (is_greg_ai) ? c12.getByID(22, true) : c12.getByID(22);
+      
+      //cout << " # photons before filtering: " << gs_all.size()
+      //     << ", after filtering: " << gs.size() << endl;
+      
+      if (gs.size() < 2){continue;}
 
       //Gathers and sorts the gamma vector
       vector<vector<lTuple>> gMat(gs.size());
@@ -426,4 +464,5 @@ void gen_root_files_rec(string inputPath, string hipoFile, string outputPath){
     //tf->Close();
 
   }//Files
+  algo_photon.Stop();
 }//gen_root_files_mcrec_match

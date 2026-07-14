@@ -8,7 +8,7 @@ from datetime import datetime
 
 # --- settings (edit as needed) ---
 BASE_DIRS = [
-    "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
+    #"/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
     "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/Q2_1.5GeV/"
 ]
 
@@ -21,7 +21,7 @@ rootprefix = "rec_dis_f2018_"
 # ROOT macro for DIS generator output
 macro = "source/gen_root_files_rec_dis.C"
 
-MAX_PARALLEL = 25
+MAX_PARALLEL = 50
 
 # --- basic checks ---
 if shutil.which("screen") is None:
@@ -43,7 +43,7 @@ if not rootpath.endswith("/"):
 # --- scan files recursively in all trees; dedupe by real path ---
 def iter_files(base: Path):
     for pat in FILE_GLOBS:
-        for f in base.rglob(pat):
+        for f in base.glob(pat):  # <-- only top-level, no subfolders
             if f.is_file():
                 rp = f.resolve()
                 rel = rp.relative_to(base)

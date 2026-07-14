@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 # ---------------- config ----------------
-MAX_SCREENS = 25
+MAX_SCREENS = 30
 POLL_SEC = 1
 SCREEN_NAME = "split_fit"
 

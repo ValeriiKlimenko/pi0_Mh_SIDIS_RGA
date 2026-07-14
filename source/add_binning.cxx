@@ -22,19 +22,18 @@
 #include <filesystem>
 #include <string_view>
 #include <algorithm>
+#include <string>
+
 
 #include "binning_params.cxx"
 #include "Dataframe.cxx"
 
 using ROOT::RDataFrame;
-using namespace RooFit;
+//using namespace RooFit;
 namespace fs = std::filesystem;
 
-// a flag that save TTree with z information instead of pi0 mass
-// the purpose of this to make sure that the bins propogate corretcly
-// we have (z,pt2,phi) -> liner binning -> many operations -> unfolding -> unliner to (z,pt2,phi) 
-// It is the check that we get the same bin at the very end
-//bool run_z_bins_instead_of_pi0mass = false;
+// custom_output keeps Data behavior, but saves extra variables into the snapshot.
+//bool custom_output = false;
 
 // this code is for SIDIS part only. There is another file that is used for DIS part.
 
@@ -62,10 +61,13 @@ void add_binning(const string full_file_path,
                  string TYPE,
                  bool is_true_gen_event,
                  int mx_cut_mode,
-                 bool run_z_bins_instead_of_pi0mass /* = false */,
+                 bool custom_output /* = false */,
                  bool is_elec_cut_on_gen = false,
                  bool is_mc_parent_cuts = false,
-                 bool no_phi_binning = false) {
+                 bool no_phi_binning = false,
+                 bool gregs_ai_on = false,
+                 int gg_mom_cut = 0,
+                 bool no_cuts_gen = false) {
 
   // Type of data file that is being analyzed
   FileType type;
@@ -95,14 +97,21 @@ void add_binning(const string full_file_path,
     } else if (mx_cut_mode == 1) {
       // same pattern as noMxcut, but for cut = 1
       rec = "rec_Mxcut_1";
-    } else { // mx_cut_mode == 2 -> old "else" branch
+    } else { // mx_cut_mode == 2
       if (is_true_gen_event) {
         if (is_mc_parent_cuts) rec = "rec_match";
-        if (no_phi_binning) rec = "rec_no_phi";
-        if (!is_mc_parent_cuts && !no_phi_binning) rec = "rec_true";
+        else if (no_phi_binning) rec = "rec_no_phi";
+        else if (gregs_ai_on) {
+          if (gg_mom_cut == 0) rec = "rec_photon_pbtp_gg_05";
+          else if (gg_mom_cut == 1) rec = "rec_photon_pbtp_gg_035";
+          else rec = "rec_photon_pbtp_gg_dump";
+        } else {
+          if (gg_mom_cut == 0) rec = "rec_true";
+          else if (gg_mom_cut == 1) rec = "rec_true_035";
+          else rec = "rec_dump";
+        }
+      } else rec = "rec_fake";
       }
-      else                   rec = "rec_fake";
-    }
   }
 
   if (type == FileType::Data) {
@@ -111,8 +120,20 @@ void add_binning(const string full_file_path,
     } else if (mx_cut_mode == 1) {
       rec = "data_Mxcut_1";
     } else { // 1.5 cut, old else
+        
         if (no_phi_binning) rec = "data_no_phi";
-        else rec = "rec_data";
+        if (gregs_ai_on) {
+          if (gg_mom_cut == 1) rec = "data_photon_pbtp_035";
+          else if (gg_mom_cut == 0) rec = "data_photon_pbtp_05";
+          else rec = "data_photon_pbtp_dump";
+        }
+        if (!no_phi_binning && !gregs_ai_on) {
+          if (gg_mom_cut == 1) rec = "rec_data_035";
+          else if (gg_mom_cut == 0) rec = "rec_data_05";
+          else rec = "rec_data_dump";
+
+        }
+        if (custom_output) rec = "rec_data_test";
     }
   }
 
@@ -127,6 +148,9 @@ void add_binning(const string full_file_path,
     }
     if (is_elec_cut_on_gen){
       rec = "gen_sidis_goodElec";
+    } else if (no_cuts_gen) {
+      ignoreSector = true;
+      rec = "gen_sidis_nocuts";
     }
   }
 
@@ -151,15 +175,13 @@ void add_binning(const string full_file_path,
      return;
   }
 
+  cout << "output_dir:" << out_dir << endl;
+
 
   string name_ending = "_out.root";
   fs::path path_root_out = out_dir / (path_root_in.stem().string() + name_ending);
   
-  if (run_z_bins_instead_of_pi0mass) {
-      name_ending = "_out_z_instead_of.root";
-      path_root_out = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/testing_binning";
-      path_root_out /= (path_root_in.stem().string() + name_ending);
-  }
+  cout << "output full path:" << path_root_out << endl;
 
 
   if (type != FileType::Rec && type != FileType::Data && type != FileType::Gen 
@@ -171,13 +193,14 @@ void add_binning(const string full_file_path,
   ////////////////////////////////////////////////////////
   
   bool isMC = (type == FileType::Rec || type == FileType::Dis_Rec || type == FileType::Gen || type == FileType::Gen_Dis);
+  bool isSmearing = (type == FileType::Rec || type == FileType::Dis_Rec);
 
   // Add the following columns ("xq2bin", "xq2bin_gen", "zpt2bin", "zpt2bin_gen", "MM")
   ROOT::RDataFrame df("h22", path_root_in.c_str());
   auto r1 = ROOT::RDF::RNode(df);
 
   ////////////////////////////////////////////////////////
-  ///// Define columns:
+  ///// Define columns: //////////////////////////////////
   ////////////////////////////////////////////////////////
 
   // when it is applied to gen DIS all the columns (bin_xBQ2_Valerii, e_P) contains infromation on generated level
@@ -189,7 +212,15 @@ void add_binning(const string full_file_path,
   // Response Obj only:
   if (type == FileType::Rec) r1 = AddDefine_Kinematics_RecOnly(r1);
   // Gen only:
-  if (type == FileType::Gen) r1 = AddDefine_Kinematics_GenOnly(r1);
+  if (type == FileType::Gen) {
+    r1 = AddDefine_Kinematics_GenOnly(r1);
+
+    if (is_elec_cut_on_gen){
+      r1 = r1.Filter("goodRecElec==1");
+      r1 = AddDefine_CutsCol(r1);
+    }
+    if (no_cuts_gen) r1 = AddDefine_CutsCol(r1);
+  }
 
   // DIS cuts:
   if (type == FileType::Dis_Data || type == FileType::Dis_Rec) {
@@ -200,9 +231,9 @@ void add_binning(const string full_file_path,
 
   }
 
-  if (type == FileType::Dis_Rec) r1 = AddDefine_RecDisMC(r1);
+  // Generated info is needed for both Response Matrix (Rec) and Misses (Gen)
+  if (type == FileType::Gen_Dis || type == FileType::Dis_Rec) r1 = AddDefine_RecDisMC(r1);
   
-
   ////////////////////////////////////////////////////////
   ///// Cuts:
   ////////////////////////////////////////////////////////
@@ -235,15 +266,16 @@ void add_binning(const string full_file_path,
 
   // standard list of cuts Rec, Data, won't work for gen (not enough info)
   // the input parameter means nothing. I may update it to type to use one function for all the cuts.
-  const string newCuts       = GetMainCuts(true, mx_cut_mode);
+  string newCuts       = GetMainCuts(true, mx_cut_mode, gg_mom_cut);
+  if (!gregs_ai_on) newCuts += GetCutsnoAI();
   const string genCuts       = GetMainCuts_Gen(mx_cut_mode);
   const string disCuts = GetDisCuts();
   const string disCuts_Gen = GetDisCuts_Gen();
 
   // booking rdf obj to use the same name for muliple datasets
-  ROOT::RDF::RNode rdf_after_the_cuts = ROOT::RDF::AsRNode(r1);
+  ROOT::RDF::RNode rdf_after_the_cuts = r1;
 
-  // prepare True Rec and Fake Rec Response rdfs
+    // prepare True Rec and Fake Rec Response rdfs
   if (type == FileType::Rec){
     //MC 4 component cuts
     string sig_cut       = "&& g1mPID==22 && g2mPID==22 && g1mPPID==111 && g2mPPID==111 && g1mPIndex==g2mPIndex";
@@ -251,7 +283,6 @@ void add_binning(const string full_file_path,
 
     string final_rec_sidis_suts = newCuts;
     
-
     if (is_mc_parent_cuts) final_rec_sidis_suts+= sig_cut;
     
     //if (!is_true_gen_event) tt_cut = "!(" + tt_cut + ")";
@@ -278,9 +309,23 @@ void add_binning(const string full_file_path,
     rdf_after_the_cuts = rdf_after_the_cuts.Filter(newCuts.c_str());
     // saved branches depends on dataset, this one is for rec data:
 
-    if (!run_z_bins_instead_of_pi0mass && !no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m"});
-    if (run_z_bins_instead_of_pi0mass &&  !no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9","pi0_m", "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento"});
-    if (no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9_nophi","pi0_m"});
+    // gregs AI goes here:
+    if (!custom_output && !no_phi_binning) {
+      rdf_after_the_cuts.Snapshot("h22", path_root_out.string(),
+        {"bin_xBQ2_Valerii", "zpt2phit_8x8x9", "pi0_m"});
+    }
+    
+    if (custom_output && !no_phi_binning) {
+      rdf_after_the_cuts.Snapshot("h22", path_root_out.string(),
+        {"bin_xBQ2_Valerii", "zpt2phit_8x8x9", "pi0_m",
+         "xB", "Q2", "z", "pi0_sidis_PT2", "phi_trento",
+         "g1_mom", "g2_mom"});
+    }
+    
+    if (no_phi_binning) {
+      rdf_after_the_cuts.Snapshot("h22", path_root_out.string(),
+        {"bin_xBQ2_Valerii", "zpt2phit_8x8x9_nophi", "pi0_m"});
+    }
   }
   
   // Gen has unique set of cuts:
@@ -288,13 +333,32 @@ void add_binning(const string full_file_path,
   if (type == FileType::Gen){
     // no new cuts are needed
     string final_gen_sidis_suts = genCuts;
-    if (is_elec_cut_on_gen) final_gen_sidis_suts += " && goodRecElec==1";
-    rdf_after_the_cuts = rdf_after_the_cuts.Filter(final_gen_sidis_suts.c_str());
-    // saved branches depends on dataset, this one is gen:
-    // each row is exactly one generated pi0 so there is no need for pi0_m fit.
-    // I could have saved hist right away but I will keep intermidaite RDF for consistency with other tyoes of samples.
-    if (no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9_nophi"});
-    else rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9"});
+    if (is_elec_cut_on_gen) {
+      final_gen_sidis_suts += " && goodRecElec == 1 && ";
+      // THE CUTS ARE APPLIED BASED ON GENERATED Q2, W, P. Fid cuts are not affected. 
+      final_gen_sidis_suts += disCuts;
+    }
+    if (no_cuts_gen){
+      
+      final_gen_sidis_suts = genCuts;
+      //removing Mx cut:
+      RemoveSubstring(final_gen_sidis_suts, "&& Mx > 1.5");
+      RemoveSubstring(final_gen_sidis_suts, "&& Mx > 1.");
+      
+      rdf_after_the_cuts = rdf_after_the_cuts.Filter(final_gen_sidis_suts.c_str());
+      
+      // e_theta and e_P are generated info
+      rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9", 
+        "cut_pcal_fid_el","DC_cut","SF_cut","e_vz", "Q2_rec", "W_rec", "y_rec", "xB_rec","bin_xBQ2_Valerii_rec", "e_P_rec","goodRecElec", "e_theta", "e_P",
+        "pi0_PT","Mx","z"});   
+    } else{
+      rdf_after_the_cuts = rdf_after_the_cuts.Filter(final_gen_sidis_suts.c_str());
+      // saved branches depends on dataset, this one is gen:
+      // each row is exactly one generated pi0 so there is no need for pi0_m fit.
+      // I could have saved hist right away but I will keep intermidaite RDF for consistency with other tyoes of samples.
+      if (no_phi_binning) rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9_nophi"});
+      else rdf_after_the_cuts.Snapshot("h22", path_root_out.string(), {"bin_xBQ2_Valerii","zpt2phit_8x8x9"});
+    }
   }
 
   if (type == FileType::Dis_Data){

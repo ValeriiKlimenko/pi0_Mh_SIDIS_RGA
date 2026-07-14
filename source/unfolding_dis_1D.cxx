@@ -403,7 +403,7 @@ int unfold_dis_xQ2_bayes(int nIter = 4,
 }
 
 // ROOT-friendly wrapper (no main)
-void unfold_dis_xQ2_bayes_root(int nIter = 4,
+void unfold_dis_xQ2_bayes_root(int nIter = 2,
                                const char* out_file = "unfolding_dis/dis_unfold_bayes.root")
 {
   unfold_dis_xQ2_bayes(nIter, out_file);

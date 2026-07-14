@@ -1,27 +1,133 @@
+1) Fit in P theta bins
+2) update sigma (3)
+
+
+
+
+
+
+
+
+
+
+
+# TO do:
+
+1) switch to clas12root GEN/REC analysis
+
 # CLAS12 π⁰ Unfolding — Analysis README
 ---------
 
+  # 2026 (No GregAI):
+  kill the screens:
+  screen -ls | grep Detached | awk '{print $1}' | xargs -I {} screen -X -S {} quit
+
   # 0. Environment setup 
-  ```bash
   module use /scigroup/cvmfs/hallb/clas12/sw/modulefiles
   module load clas12root
   module load root
-  
-  Add RooUnfold to the environment
+  module load iguana
   setenv LD_LIBRARY_PATH /home/valerii/work_disk/RooUnfold-master/build:$LD_LIBRARY_PATH
 
   # 1. Convert HIPO → ROOT
-  python run_rec.py
-  python run_gen.py
-  ./run_data.sh
+  python run_rec.py --is_greg_ai 0
+  python run_gen.py --base-index 0
+  python run_gen.py --base-index 1
+  ./run_data.sh --is_greg_ai 0
+  
+  # 2. Add binning
+  python run_add_binning.py --data-type Rec  --mx-cut-mode 2 --is-true-gen-event 1 --gg_mom_cut 0
+  python run_add_binning.py --data-type Data --mx-cut-mode 2 --gg_mom_cut 0
+  python run_add_binning.py --data-type Gen  --mx-cut-mode 2
+
+  # for testing
+  python run_add_binning.py --data-type Data --mx-cut-mode 2 --gg_mom_cut 0 --custom-output 1
+  
+
+  # 3. Define bin migration
+  python run_define_bin_migr_data.py --dir rec_data_05 --mx-cut-mode 2
+  python run_define_bin_migr.py --mx-cut-mode 2
+
+  make_gen_binning_2D.cxx
+  make_gen_binning_2D("/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/gen_binning", "gen_binning_2D_no_gemc512.root")
+
+  # 4. Split and fit 
+  python run_split_and_fit_unif.py --logic sim --subdir unfolding_rec_true
+  python run_split_and_fit_unif.py --logic data --subdir unfolding_rec_data_05
+
+# DIS:
+---------
+
+  # 1. Convert HIPO → ROOT
   # includes both rec-gen subset and full gen subset
   python run_rec_dis.py
-  # data yield:
   ./run_dis.sh
 
   # 2. Add binning
-  # Used now (true gen events) Mx cut at 1.5
-  python run_add_binning.py --data-type Rec  --mx-cut-mode 2 --is-true-gen-event 1
+  python run_add_binning.py --data-type Dis_data  --mx-cut-mode 0 
+  python run_add_binning.py --data-type Dis_rec  --mx-cut-mode 0 
+  python run_add_binning.py --data-type DIS_GEN  --mx-cut-mode 0 
+
+  
+  get_dis_hist_for_unf.cxx
+  .L ~/work_disk/RooUnfold-master/examples/RooUnfoldExample.cxx
+  .L source/unfolding_dis_1D.cxx++
+  
+# Combined Acceptance:
+---------
+  # 0. - 1. Are the same (No need for rerun)
+  # 2. Add binning
+  python run_add_binning.py --data-type Gen  --mx-cut-mode 2 --isGoodElec 1
+
+  # 3. Define bin migration
+  make_gen_binning_2D("/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/gen_sidis_goodElec", "gen_binning_2D_isGoodElec_no_gemc512.root")
+
+  # 0. Updated Gen workflow:
+  
+  python run_add_binning.py --data-type Gen  --mx-cut-mode 2 --no_cuts_gen 1
+
+
+# Greg AI:
+---------
+
+  # 1. Convert HIPO → ROOT
+  (twice for all the files):
+  python run_rec.py --is_greg_ai 1
+  ./run_data.sh --is_greg_ai 1
+
+  # 2. Add columns, perfrom cuts:
+  python run_add_binning.py --data-type Data --mx-cut-mode 2 --gg_mom_cut 1 --gregs_ai_on 1
+  python run_add_binning.py --data-type Rec --mx-cut-mode 2 --gg_mom_cut 1 --gregs_ai_on 1
+  python run_add_binning.py --data-type Rec --mx-cut-mode 2 --gg_mom_cut 0 --gregs_ai_on 1
+   
+  # no need to rerun Gen since it have no idea about gammas.
+
+  # 3. Define bin migration
+  python run_define_bin_migr_data.py --dir "../data_data_greg_ai/data_photon_pbtp_035"
+  python run_define_bin_migr.py  --dir "../data_rec_greg_ai/rec_photon_pbtp_gg_035"
+  python run_define_bin_migr.py  --dir "../data_rec_greg_ai/rec_photon_pbtp_gg_05"
+  
+  # 4. Split and No(!) fit 
+  python run_split_and_fit_unif.py --logic data --subdir unfolding_rec_data_035
+  python run_split_and_fit_unif.py --logic data --subdir unfolding_rec_data_05
+
+  python run_split_and_fit_unif.py --logic data --subdir unfolding_data_photon_pbtp_05
+
+
+  python run_split_and_fit_unif.py --logic sim --subdir unfolding_rec_photon_pbtp_gg_035
+  python run_split_and_fit_unif.py --logic sim --subdir unfolding_rec_photon_pbtp_gg_05
+
+  # 5. 
+
+  
+  # old:
+ ---------
+ ---------
+ ---------
+ ---------
+
+  # 2. Add binning
+  # Used now (true gen events) Mx cut at 1.5 DEFAULT:
 
   # Mx cut at 1
   python run_add_binning.py --data-type Rec  --mx-cut-mode 1 --is-true-gen-event 1
@@ -153,7 +259,22 @@
   get_dis_hist_for_unf.cxx
   .L source/unfolding_dis_1D.cxx++
   
+  #Greg's AI:
+  python run_rec.py --is_greg_ai 1
+  python run_add_binning.py --data-type Rec  --mx-cut-mode 2 --is-true-gen-event 1 --gregs_ai_on 1 --gg_mom_cut 1
+  python run_add_binning.py --data-type Rec  --mx-cut-mode 2 --is-true-gen-event 1 --gregs_ai_on 1 --gg_mom_cut 0
+  python run_add_binning.py --data-type Data --mx-cut-mode 2 --gregs_ai_on 1 --gg_mom_cut 1
+  python run_add_binning.py --data-type Data --mx-cut-mode 2 --gregs_ai_on 1 --gg_mom_cut 0
+  python run_add_binning.py --data-type Gen  --mx-cut-mode 2
 
+  python run_define_bin_migr_data.py --dir data_photon_pbtp
+  python run_split_and_fit_unif.py --logic data --subdir unfolding_data_photon_pbtp
+
+  python run_define_bin_migr.py --dir rec_photon_pbtp
+  python run_split_and_fit_unif.py --logic sim --subdir unfolding_rec_photon_pbtp
+
+  make_gen_binning_2D("/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/gen_binning", "gen_binning_2D_gregAI.root")
+  make_gen_binning_2D("/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/gen_binning", "gen_binning_2D_1023files.root.root")
   
   # Outdated:
 
@@ -189,6 +310,6 @@
   python test_binning.py --input_dir /lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/rec_true/
   
   ```bash
-
-
 # Bayes unfolding (nIter=5)  chi2(unfolded vs MC truth) = 5.80922e+14
+    ap.add_argument("--a", default="../manual_bbb_isGoodElec/Marshall_vs_MyBBB/dataGenOverRec_method3_sumPhi_all_then_ratio.csv", help="First CSV (m3-like format)")
+    ap.add_argument("--b", default="dataGenOverRec_method3_sumPhi_all_then_ratio.csv", help="Second CSV (m3-like format)")

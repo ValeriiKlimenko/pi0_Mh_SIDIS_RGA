@@ -2,14 +2,61 @@
 # Run gen_root_files_data.C jobs in parallel inside detached GNU screen sessions
 # and write each session's output to logs/<session>.log
 
+set -euo pipefail
+
+# -----------------------------
+# CLI option: --is_greg_ai 0/1
+# -----------------------------
+IS_GREG_AI=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --is_greg_ai)
+      [[ $# -ge 2 ]] || { echo "ERROR: --is_greg_ai needs 0 or 1" >&2; exit 2; }
+      IS_GREG_AI="$2"
+      shift 2
+      ;;
+    --is_greg_ai=*)
+      IS_GREG_AI="${1#*=}"
+      shift 1
+      ;;
+    -h|--help)
+      cat <<EOF
+Usage: $0 [--is_greg_ai 0|1]
+
+  --is_greg_ai 0   (default) output to .../data_data/
+  --is_greg_ai 1             output to .../data_data_greg_ai/
+EOF
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "$IS_GREG_AI" != "0" && "$IS_GREG_AI" != "1" ]]; then
+  echo "ERROR: --is_greg_ai must be 0 or 1 (got '$IS_GREG_AI')" >&2
+  exit 2
+fi
+
 # --- user settings (kept from your script) ---
 input="path_to_files/pass2_nSidis.dat"
 hipopath="/lustre24/expphy/cache/clas12/rg-a/production/recon/fall2018/torus-1/pass2/main/train/nSidis/"
-rootpath="/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_data/"
+
+# rootpath depends on is_greg_ai
+if [[ "$IS_GREG_AI" == "1" ]]; then
+  rootpath="/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_data_greg_ai/"
+else
+  rootpath="/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_data/"
+fi
+
+mkdir -p "$rootpath"
+
 rootprefix="data_f2018_"
 
 # How many screen sessions to run at once
-MAX_PARALLEL=10   
+MAX_PARALLEL=30
 
 # --- safety checks & prep ---
 command -v screen >/dev/null 2>&1 || { echo "ERROR: 'screen' is not installed/in PATH." >&2; exit 1; }
@@ -24,6 +71,9 @@ mkdir -p "$LOG_DIR"
 : > "$MISSING_LOG"
 : > "$LAUNCHED_LOG"
 
+echo "[launcher] is_greg_ai=$IS_GREG_AI"
+echo "[launcher] rootpath=$rootpath"
+
 # Load file list
 mapfile -t files < "$input"
 echo "Read ${#files[@]} entries from $input"
@@ -35,7 +85,6 @@ running_jobs() {
 
 # LD_LIBRARY_PATH export to run inside each screen (note the escaped quotes and \$)
 LD_EXPORT="export LD_LIBRARY_PATH=\"/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/clas12root/1.9.0/4.3.0/lib64:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/ccdb/1.99.7/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/root/6.36.04/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/python/3.13.7/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/local/hipo/4.3.0/lib:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib64:/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:\${LD_LIBRARY_PATH-}\""
-
 
 # --- main loop ---
 for file in "${files[@]}"; do
@@ -51,8 +100,8 @@ for file in "${files[@]}"; do
 
   echo "Found: $file"
 
-  # Your ROOT command
-  cmd="clas12root -q 'source/gen_root_files_data.C(\"$hipopath\", \"$file\", \"${rootpath}${rootprefix}\")'"
+  # ROOT command (now includes 4th arg: IS_GREG_AI)
+  cmd="clas12root -q 'source/gen_root_files_data.C(\"$hipopath\", \"$file\", \"${rootpath}${rootprefix}\", ${IS_GREG_AI})'"
 
   # Safe, readable session name + log file
   safe_file=$(basename "$file" | tr -c 'A-Za-z0-9_-' '_')

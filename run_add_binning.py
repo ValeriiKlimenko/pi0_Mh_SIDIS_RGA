@@ -7,27 +7,71 @@ import subprocess
 import time
 from pathlib import Path
 
-# ----------------- CONFIG: set your prepared data directories here -----------------
+# ----------------- CONFIG -----------------
+BASE_PREP_DIR = Path("/lustre24/expphy/volatile/clas12/valerii/multi_pi0")
+
+
 DATA_DIR_MAP = {
-    # Adjust these three paths as needed:
-    "DATA": "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_data/",
-    "REC" : "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/",
-    "GEN" : "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_gen/",
-
-    "DIS_DATA" : "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_dis/",
-    "DIS_REC" : "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec_dis/",
-    "DIS_GEN" : "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec_dis/",
-  
+    "GEN":      str(BASE_PREP_DIR / "data_gen"),
+    "DIS_DATA": str(BASE_PREP_DIR / "data_dis"),
+    "DIS_REC":  str(BASE_PREP_DIR / "data_rec_dis"),
+    "DIS_GEN":  str(BASE_PREP_DIR / "data_rec_dis"),
 }
-# ----------------------------------------------------------------------------------
+# -------------------------------------------
 
-MAX_SCREENS = 35
+MAX_SCREENS = 30
 poll_sec = 1
 SCREEN_NAME = "addBinning"
 
+
+def pick_input_dir(data_tag: str,
+                   mx_cut_mode: int,
+                   is_true_gen_event: int,
+                   is_mc_parent_cuts: int,
+                   no_phi_binning: int,
+                   gregs_ai_on: int,
+                   gg_mom_cut: int,
+                   custom_output: int) -> Path:
+    """
+    Compute input directory name for DATA/REC exactly like the C++ 'rec' label logic.
+    Returns an absolute Path.
+
+    For DATA with custom_output enabled, use data_test as input.
+    The macro data type remains DATA.
+    """
+    tag = data_tag.upper()
+
+    # DATA
+    if tag == "DATA":
+        if custom_output:
+            sub = "data_data"
+        elif gregs_ai_on:
+            sub = "data_data_greg_ai"
+        else:
+            sub = "data_data"
+
+        return BASE_PREP_DIR / sub
+
+    # REC
+    if tag == "REC":
+        if gregs_ai_on:
+            sub = "data_rec_greg_ai"
+        else:
+            sub = "data_rec"
+
+        return BASE_PREP_DIR / sub
+
+    # everything else uses DATA_DIR_MAP
+    return Path(DATA_DIR_MAP[tag])
+
+
 def screen_ls():
     try:
-        out = subprocess.check_output(["screen", "-ls"], text=True, stderr=subprocess.STDOUT)
+        out = subprocess.check_output(
+            ["screen", "-ls"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
     except subprocess.CalledProcessError as e:
         out = e.output
 
@@ -39,12 +83,17 @@ def screen_ls():
             pid, name, status = int(m.group(1)), m.group(2), m.group(3)
             if SCREEN_NAME in name:
                 sessions[name] = {"pid": pid, "status": status}
+
     return sessions
 
-def start_screen_session(name: str, cmd: str, log_path: Path = None, workdir: Path = None):
+
+def start_screen_session(name: str,
+                         cmd: str,
+                         log_path: Path = None,
+                         workdir: Path = None):
     """
     Launch a detached screen session running `cmd`.
-    The session will EXIT when `cmd` finishes (because we use `exec`).
+    The session will EXIT when `cmd` finishes because we use `exec`.
     Output is appended to log_path if provided.
     """
     if log_path:
@@ -60,6 +109,7 @@ def start_screen_session(name: str, cmd: str, log_path: Path = None, workdir: Pa
         check=True,
     )
 
+
 if __name__ == "__main__":
     # --- CLI args ---
     parser = argparse.ArgumentParser(
@@ -68,16 +118,21 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--data-type",
-        choices=["Data", "Rec", "Gen", "DATA", "REC", "GEN", "Dis_data", "Dis_rec", "DIS_GEN"],
+        choices=[
+            "Data", "Rec", "Gen",
+            "DATA", "REC", "GEN",
+            "Dis_data", "Dis_rec", "DIS_GEN",
+        ],
         default="Data",
         help="Which dataset to process: Data, Rec, or Gen (case-insensitive).",
     )
+
     parser.add_argument(
         "--is-true-gen-event",
         type=int,
         choices=[0, 1],
         default=1,
-        help="Pass 0 or 1 to the macro as the is_true_gen_event flag (default: 0).",
+        help="Pass 0 or 1 to the macro as the is_true_gen_event flag.",
     )
 
     parser.add_argument(
@@ -85,15 +140,15 @@ if __name__ == "__main__":
         type=int,
         choices=[0, 1, 2],
         default=2,
-        help="Mx cut at No cut, 1.0, and 1.5 respectively.",
+        help="Mx cut mode: 0 = no cut, 1 = Mx > 1.0, 2 = Mx > 1.5.",
     )
 
     parser.add_argument(
-        "--bin-test",
+        "--custom-output",
         type=int,
         choices=[0, 1],
         default=0,
-        help="fills z, pt2, phi in the output ttree (0/1).",
+        help="Use data_test input directory and save custom output columns in the Data snapshot.",
     )
 
     parser.add_argument(
@@ -101,7 +156,7 @@ if __name__ == "__main__":
         type=int,
         choices=[0, 1],
         default=0,
-        help="Requires to have detected elec for SIDIS acceptance.",
+        help="Requires detected electron for SIDIS acceptance.",
     )
 
     parser.add_argument(
@@ -109,7 +164,7 @@ if __name__ == "__main__":
         type=int,
         choices=[0, 1],
         default=0,
-        help="Gammas has to be originated from pi0, MC only.",
+        help="Gammas have to originate from pi0, MC only.",
     )
 
     parser.add_argument(
@@ -121,35 +176,77 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--gregs_ai_on",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="If AI ID was used, affects cuts and output path.",
+    )
+
+    parser.add_argument(
+        "--gg_mom_cut",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="0 is g_mom_cut > 0.5 GeV, 1 is > 0.35 GeV. Default is 0.5 GeV cut.",
+    )
+
+    parser.add_argument(
+        "--no_cuts_gen",
+        type=int,
+        choices=[0, 1],
+        default=0,
+        help="For acceptance studies. Does not apply DIS cuts to SIDIS but saves REC electron information with the cuts columns.",
+    )
+
+    parser.add_argument(
         "--logs-dir",
         default="logs_add_binning",
         help="Directory to store screen logs.",
     )
+
     args = parser.parse_args()
 
-    # Normalize data type and pick directory/tag
-    data_tag = args.data_type.upper()  # "DATA", "REC", "GEN"
-    if data_tag not in DATA_DIR_MAP:
-        raise SystemExit(f"[ERROR] Unknown data type '{args.data_type}'. Expected one of: Data, Rec, Gen.")
-    data_dir = DATA_DIR_MAP[data_tag]
+    data_tag = args.data_type.upper()
+
+    if data_tag not in ("DATA", "REC") and data_tag not in DATA_DIR_MAP:
+        raise SystemExit(f"[ERROR] Unknown data type '{args.data_type}'.")
+
+    data_dir_path = pick_input_dir(
+        data_tag=data_tag,
+        mx_cut_mode=int(args.mx_cut_mode),
+        is_true_gen_event=int(args.is_true_gen_event),
+        is_mc_parent_cuts=int(args.isMCParentCut),
+        no_phi_binning=int(args.noPhiBinning),
+        gregs_ai_on=int(args.gregs_ai_on),
+        gg_mom_cut=int(args.gg_mom_cut),
+        custom_output=int(args.custom_output),
+    )
 
     # Validate input dir
-    mypath = Path(data_dir)
-    if not mypath.exists() or not mypath.is_dir():
-        raise SystemExit(f"[ERROR] Data directory does not exist or is not a directory: {mypath}")
+    mypath = Path(data_dir_path)
+    print(data_dir_path)
+
+    if not mypath.is_dir():
+        raise SystemExit(f"[ERROR] Input directory not found: {mypath}")
 
     # Gather input files
     rec_files = [p.name for p in mypath.iterdir() if p.is_file()]
+
     if not rec_files:
         raise SystemExit(f"[ERROR] No input files found in: {mypath}")
 
     logs_dir = Path(args.logs_dir)
-    is_true_gen_event = args.is_true_gen_event
+
+    is_true_gen_event = int(args.is_true_gen_event)
     mx_cut_mode = int(args.mx_cut_mode)
-    is_bin_test = int(args.bin_test)
+    custom_output = int(args.custom_output)
     isGoodElec = int(args.isGoodElec)
     isMCParentCut = int(args.isMCParentCut)
     noPhiBinning = int(args.noPhiBinning)
+    gregs_ai_on = int(args.gregs_ai_on)
+    gg_mom_cut = int(args.gg_mom_cut)
+    no_cuts_gen = int(args.no_cuts_gen)
 
     LD_EXPORT = (
         'export LD_LIBRARY_PATH='
@@ -162,21 +259,45 @@ if __name__ == "__main__":
         '/u/scigroup/cvmfs/hallb/clas12/sw/almalinux9-gcc11/lib:${LD_LIBRARY_PATH-}"'
     )
 
-
     for i_file, file in enumerate(rec_files):
         # wait until there is an available screen slot
         while len(screen_ls()) >= MAX_SCREENS:
             time.sleep(poll_sec)
 
         file_path = str(mypath / file)
-        name = f"{SCREEN_NAME}_{i_file}"           # unique screen session name
-        log = logs_dir / f"{name}.log"             # capture stdout/stderr
+        name = f"{SCREEN_NAME}_{i_file}"
+        log = logs_dir / f"{name}.log"
 
-        # Build the macro call (numeric flag unquoted). Pass the selected data tag.
-        # Signature: add_binning.cxx("<file>", "<DATA|REC|GEN>", <is_true_gen_event>)
+        # Build the macro call.
+        # Signature:
+        # add_binning.cxx(
+        #   "<file>",
+        #   "<DATA|REC|GEN>",
+        #   is_true_gen_event,
+        #   mx_cut_mode,
+        #   custom_output,
+        #   isGoodElec,
+        #   isMCParentCut,
+        #   noPhiBinning,
+        #   gregs_ai_on,
+        #   gg_mom_cut,
+        #   no_cuts_gen
+        # )
+        macro_call = (
+            f'source/add_binning.cxx('
+            f'"{file_path}", '
+            f'"{data_tag}", '
+            f'{is_true_gen_event}, '
+            f'{mx_cut_mode}, '
+            f'{custom_output}, '
+            f'{isGoodElec}, '
+            f'{isMCParentCut}, '
+            f'{noPhiBinning}, '
+            f'{gregs_ai_on}, '
+            f'{gg_mom_cut}, '
+            f'{no_cuts_gen})'
+        )
 
-      
-        macro_call = f'source/add_binning.cxx("{file_path}", "{data_tag}", {is_true_gen_event}, {mx_cut_mode}, {is_bin_test}, {isGoodElec}, {isMCParentCut}, {noPhiBinning})'
         root_call = f"root -l -b -q {shlex.quote(macro_call)}"
 
         cmd = f"""
@@ -190,4 +311,11 @@ if __name__ == "__main__":
         """
 
         start_screen_session(name, cmd, log_path=log)
-        print(f"Launched {name} [data_type={data_tag}] (is_true_gen_event={is_true_gen_event})  (log: {log})")
+
+        print(
+            f"Launched {name} "
+            f"[data_type={data_tag}] "
+            f"(is_true_gen_event={is_true_gen_event}) "
+            f"(custom_output={custom_output}) "
+            f"(log: {log})"
+        )

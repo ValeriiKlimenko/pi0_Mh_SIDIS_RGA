@@ -121,7 +121,7 @@ def main():
           dir_name = MX_DIR_MAP[3]
 
     full_dir = os.path.join(BASE_DATA_DIR, dir_name)
-    outdir = f"unfolding_{dir_name}"  # e.g. unfolding_rec_true/
+    outdir = f"unfolding_{os.path.basename(os.path.normpath(dir_name))}"
 
     if not os.path.isdir(os.path.dirname(full_dir)) and not os.path.isdir(full_dir):
         print(f"Warning: constructed data dir does not exist: {full_dir}", file=sys.stderr)

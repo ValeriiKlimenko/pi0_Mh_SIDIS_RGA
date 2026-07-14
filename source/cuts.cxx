@@ -3,6 +3,8 @@ using namespace std;
 // IT IS IMPORTANT TO SET IT EVERY TIME DF APPLIES THE CUTS
 // IT IS USED FOR SF CUT ONLY (SO FAR)
 bool isMC = false;
+bool isSmearing = false;
+bool ignoreSector = false;
 
 //Root file and plot path 
 const string filePath_IN = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/root_data/";
@@ -358,15 +360,63 @@ auto dppC(float Px, float Py, float Pz, int sec, int ivec, int corEl, int corPip
     return dp/pp;
 };
 
+
+// Electron-only momentum smearing (Pass-2 style), smears |p| only
+// smear_factor = 0.75
+inline TLorentzVector SmearElectron_Pass2(const TLorentzVector& v4, double smear_factor = 0.75)
+{
+  const double M   = v4.M();      // should be m_e
+  const double P   = v4.P();
+  const double Th  = v4.Theta();
+  const double Phi = v4.Phi();
+
+  // Polynomial for electron (from your snippet)
+  const double th_deg = TMath::RadToDeg() * Th;
+
+  double Smear_SF_Theta =
+      (-7.6697e-05) * th_deg * th_deg +
+      ( 2.7102e-03) * th_deg +
+      (-0.01402);
+
+  Smear_SF_Theta *= 0.95;         // from your code
+  if (Smear_SF_Theta < 0) Smear_SF_Theta = 0;
+
+  const double sigmaP = P * Smear_SF_Theta * smear_factor;
+  double P_new = P + gRandom->Gaus(0.0, sigmaP);
+
+  // guard against negative momentum
+  if (P_new < 0) P_new = 0;
+
+  const double px = P_new * std::sin(Th) * std::cos(Phi);
+  const double py = P_new * std::sin(Th) * std::sin(Phi);
+  const double pz = P_new * std::cos(Th);
+  const double E  = std::sqrt(P_new * P_new + M * M);
+
+  return TLorentzVector(px, py, pz, E);
+}
+
 // sector should be 1:6
+// in case of MC it applies smearing instead of momentum corrections
 auto Get4mom_corr(double ex, double ey, double ez, double sec_mom_corr){
-  if (isMC) return (TLorentzVector) {ex, ey, ez, sqrt(ex*ex+ey*ey+ez*ez+m_e*m_e)};
-  else{
-     auto fe = dppC(ex, ey, ez, (int)lrint(sec_mom_corr), 0, 3, 0, 0, 0) + 1;
-     double energy = sqrt(fe*fe*(ex*ex+ey*ey+ez*ez)+m_e*m_e);
-     TLorentzVector elec_corrected(fe*ex, fe*ey, fe*ez, energy);   
-     return elec_corrected;  
+  // generated spectra, just retur momentum
+  if (isMC && !isSmearing) {return (TLorentzVector) {ex, ey, ez, sqrt(ex*ex+ey*ey+ez*ez+m_e*m_e)};}
+  // rec spectra, apply smearing
+  if (isMC && isSmearing) {
+    const double E = std::sqrt(ex*ex + ey*ey + ez*ez + m_e*m_e);
+    TLorentzVector ele(ex, ey, ez, E);
+    return SmearElectron_Pass2(ele, 0.75);  // smear_factor = 0.75
   }
+  // data, apply mom. corr
+  if (!isMC){
+    auto fe = dppC(ex, ey, ez, (int)lrint(sec_mom_corr), 0, 3, 0, 0, 0) + 1;
+    double energy = std::sqrt(fe*fe*(ex*ex+ey*ey+ez*ez) + m_e*m_e);
+    TLorentzVector elec_corrected(fe*ex, fe*ey, fe*ez, energy);
+    return elec_corrected;
+  }
+
+  // Undefined case (never executed):
+  // returns momentum without any corrections:
+  return (TLorentzVector) {ex, ey, ez, sqrt(ex*ex+ey*ey+ez*ez+m_e*m_e)};
 }
 ///////////////////////////////////////////////////////////////////////
 //////////////////////////////////////// copied from make_*** Marshall /////////////////////////////////////
@@ -384,8 +434,6 @@ auto Get4mom_corr(double ex, double ey, double ez, double sec_mom_corr){
  auto W2_prime(TLorentzVector &q, TLorentzVector &p){
    return pow(m_p + q.E() - p.E(), 2.0) - (q - p).Mag2();
  };
-
-
 
  //Returns Bjorken x
  // xB = Q^2 / (2 * P * q)
@@ -659,9 +707,10 @@ string GetDisCuts(){
     return list_of_cuts;
 }
 
+// y relaxed to 0.8 for migration from y > 0.75
 string GetDisCuts_Gen(){
 
-    string list_of_cuts = "y < 0.75  && (e_mom > 2 && e_mom < 8)"; 
+    string list_of_cuts = "y < 0.8  && (e_mom > 2 && e_mom < 8)"; 
     //Replaced by Timothy + Richard's code
     list_of_cuts             += " && Q2 > 1.5 && W > 2";//change q2 > 2 later, Feynman X > 0    
     // ID/Fid Cuts are added by Valerii:
@@ -671,15 +720,14 @@ string GetDisCuts_Gen(){
 
 
 
-string GetMainCuts(bool isMC, int mx_cut_mode){
+string GetMainCuts(bool isMC, int mx_cut_mode, int gamma_mom_cut){
     
     string list_of_cuts = "y < 0.75 && pi0_sidis_PT2 < 1.5 && (e_mom > 2 && e_mom < 8)"; // Missing mass > 1.5
     //Replaced by Timothy + Richard's code
     list_of_cuts             += "&& g1b > 0.9 && g1b < 1.1 && g2b > 0.9 && g2b < 1.1"; // photon beta cuts
-    list_of_cuts             += "&& g1_mom > 0.5 && g2_mom > 0.5 && pi0_E > 0.125";//Stefan
+    list_of_cuts             += "&& pi0_E > 0.125";//Stefan
     list_of_cuts             += "&& e_g1_ang > 8 && e_g2_ang > 8"; //difference between angles of elec and gammas
     list_of_cuts             += "&& xF > 0 && Q2 > 1.5 && W > 2";//change q2 > 2 later, Feynman X > 0    
-    list_of_cuts             += "&&g_open_ang > 6.0*TMath::Exp(1-pi0_mom) + 0.5";//pi0_mom -openang cut, changed to current
     // ID/Fid Cuts are added by Valerii:
     list_of_cuts             += "&& e_vz > -8. && e_vz < 2.";
     list_of_cuts             += "&& cut_pcal_fid_el && cut_pcal_fid_g1 && cut_pcal_fid_g2";
@@ -687,6 +735,8 @@ string GetMainCuts(bool isMC, int mx_cut_mode){
 
     if (mx_cut_mode == 1) list_of_cuts             +=  "&& Mx > 1.";
     if (mx_cut_mode == 2) list_of_cuts             +=  "&& Mx > 1.5";
+    if (gamma_mom_cut == 0) list_of_cuts             +=  "&& g1_mom > 0.5 && g2_mom > 0.5";
+    if (gamma_mom_cut == 1) list_of_cuts             +=  "&& g1_mom > 0.35 && g2_mom > 0.35";
 
   
     //list_of_cuts             += "&& DC_cut && SF_cut";
@@ -698,13 +748,21 @@ string GetMainCuts(bool isMC, int mx_cut_mode){
     else{
         return list_of_cuts;
     }
+    return list_of_cuts;
+}
+
+string GetCutsnoAI(){
+  string list_of_cuts = " && g_open_ang > 6.0*TMath::Exp(1-pi0_mom) + 0.5";//pi0_mom -openang cut, changed to current
+  return list_of_cuts;
 }
 
 
 // for gen distrib:
+// isEventINbins is removed beacuse we want to account fro migration outside
+// y relaxed to 0.8 for migration from y > 0.75
 string GetMainCuts_Gen(int mx_cut_mode){
-  
-    string list_of_cuts = "y < 0.75 && pi0_sidis_PT2 < 1.5 && (e_mom > 2 && e_mom < 8) && Q2 > 1.5 && W > 2 && isEventINbins"; 
+
+    string list_of_cuts = "y < 0.8 && pi0_sidis_PT2 < 1.5 && (e_mom > 2 && e_mom < 8) && Q2 > 1.5 && W > 2 "; 
     if (mx_cut_mode == 1) list_of_cuts             +=  "&& Mx > 1.";
     if (mx_cut_mode == 2) list_of_cuts             +=  "&& Mx > 1.5";
     return list_of_cuts;
@@ -737,6 +795,8 @@ string GetMainCuts_rootPlot(bool isMC){
 
 
  auto cut_SF( const double &sf, const double &p, const int &sec, const int strictness){
+   
+    if (ignoreSector && sec == 0) return false;
 
     // 3.5 nominal (strict = 2)
     double N_sigmas = (5.5 - strictness);
@@ -777,6 +837,7 @@ auto triagCut(){
 
 // Based on pass-1 DC fid cuts I had in my inclusive analysis
 auto cut_DC_fid(pair <double, double> DC_layer_R1, pair <double, double> DC_layer_R2, pair <double, double> DC_layer_R3, const int strictness){
+
 
     if (strictness < 1 || strictness > 3) 
         throw out_of_range("check cut_DC_fid parameters");
@@ -820,6 +881,9 @@ auto cut_PCAL_fid( double &lw_1,  double &lv_1,  double &lu_1,
                      double &lw_4,  double &lv_4,  double &lu_4,
                      double &lw_7,  double &lv_7,  double &lu_7,
                      const int &sec, const int strictness){
+
+    if (ignoreSector && sec == 0) return false;
+  
     isSEC_16(sec);
 
     // FIDUCIAL CUTS:
@@ -845,7 +909,7 @@ auto cut_PCAL_fid( double &lw_1,  double &lv_1,  double &lu_1,
                 return false;
         }
 
-  
+/*  
     // MISSING ELEMENTS:
             switch (sec) {
                 case 1:
@@ -884,8 +948,14 @@ auto cut_PCAL_fid( double &lw_1,  double &lv_1,  double &lu_1,
                 default:
                     break;
             }
-
+*/
         return true;
         
 }
 
+void RemoveSubstring(std::string& s, const std::string& to_remove) {
+    size_t pos;
+    while ((pos = s.find(to_remove)) != std::string::npos) {
+        s.erase(pos, to_remove.length());
+    }
+}

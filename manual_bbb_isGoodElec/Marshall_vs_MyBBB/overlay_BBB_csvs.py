@@ -14,6 +14,14 @@ PT_EDGES = np.array(
     dtype=float
 )
 
+Z_EDGES = np.array(
+    [0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0],
+    dtype=float
+)
+
+SKIP_Z_BINS = {1, 8}
+SKIP_PT2_BINS = {1, 11}
+
 TWO_PI = 2.0 * np.pi
 
 
@@ -68,6 +76,15 @@ def pt2_bin_center(pt2_bin: np.ndarray, edges: np.ndarray) -> np.ndarray:
     centers = np.full(pt2_bin.shape, np.nan, dtype=float)
     ok = (pt2_bin >= 1) & (pt2_bin <= (len(edges) - 1))
     i = pt2_bin[ok] - 1
+    centers[ok] = 0.5 * (edges[i] + edges[i + 1])
+    return centers
+
+
+def z_bin_center(z_bin: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    z_bin = np.asarray(z_bin, dtype=int)
+    centers = np.full(z_bin.shape, np.nan, dtype=float)
+    ok = (z_bin >= 1) & (z_bin <= (len(edges) - 1))
+    i = z_bin[ok] - 1
     centers[ok] = 0.5 * (edges[i] + edges[i + 1])
     return centers
 
@@ -209,7 +226,7 @@ def main():
 
     df1 = read_method_csv(args.m1, "m1")
     df2 = read_method_csv(args.m2, "m2")
-    df3 = read_method_csv(args.m3, "m3")  # <-- NEW
+    df3 = read_method_csv(args.m3, "m3")
     dfr = read_reference_table(args.ref, z_offset=args.z_offset)
 
     # Average reference if multiple rows per (xq2,z,pt2)
@@ -223,10 +240,17 @@ def main():
 
     key = ["xq2_bin", "z_bin", "pt2_bin"]
     merged = df1.merge(df2, on=key, how="outer")
-    merged = merged.merge(df3, on=key, how="outer")     # <-- NEW
+    merged = merged.merge(df3, on=key, how="outer")
     merged = merged.merge(dfr_b, on=key, how="outer")
 
+    # Skip requested bins globally
+    merged = merged[
+        (~merged["z_bin"].isin(SKIP_Z_BINS)) &
+        (~merged["pt2_bin"].isin(SKIP_PT2_BINS))
+    ].copy()
+
     merged["pt2_center"] = pt2_bin_center(merged["pt2_bin"].to_numpy(), PT_EDGES)
+    merged["z_center"] = z_bin_center(merged["z_bin"].to_numpy(), Z_EDGES)
 
     # scaling (m1/m2 only)
     scale_map = load_scale_map(args.scale_csv)
@@ -247,7 +271,6 @@ def main():
         ratio_dir = pdir / "ratios"
         ratio_dir.mkdir(parents=True, exist_ok=True)
 
-        # Coefficient applied ONLY to m1 & m2 when drawing (as in your current code)
         DRAW_COEF = TWO_PI
 
         for xq2, df_x in merged.groupby("xq2_bin"):
@@ -255,20 +278,24 @@ def main():
             if not z_bins:
                 continue
 
-            # for title (keep consistent with scaling index ix+1)
             cs, ca = scale_map.get(int(xq2 + 1), (np.nan, np.nan))
-
             nrows, ncols = choose_subplot_grid(len(z_bins))
 
             # ----------- Overlay figure -----------
-            W_PER_COL = 5.5   # <-- increase this for wider 
-            H_PER_ROW = 3.2   # <-- adjust height if you want
+            W_PER_COL = 5.5
+            H_PER_ROW = 3.2
 
-            fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True,figsize=(W_PER_COL * ncols, H_PER_ROW * nrows))
+            fig, axes = plt.subplots(
+                nrows=nrows, ncols=ncols, sharex=True,
+                figsize=(W_PER_COL * ncols, H_PER_ROW * nrows)
+            )
             axes = np.array(axes).reshape(-1)
 
             # ----------- Ratio figure -----------
-            figR, axesR = plt.subplots(nrows=nrows, ncols=ncols, sharex=True,figsize=(W_PER_COL * ncols, H_PER_ROW * nrows))
+            figR, axesR = plt.subplots(
+                nrows=nrows, ncols=ncols, sharex=True,
+                figsize=(W_PER_COL * ncols, H_PER_ROW * nrows)
+            )
             axesR = np.array(axesR).reshape(-1)
 
             for i, z in enumerate(z_bins):
@@ -276,30 +303,9 @@ def main():
                 axR = axesR[i]
 
                 sub = df_x[df_x["z_bin"] == z].sort_values("pt2_center")
-                """
-                # ---------- overlay: m1 (uses DRAW_COEF) ----------
-                m = sub["m1_content"].notna()
-                if m.any():
-                    ax.errorbar(
-                        sub.loc[m, "pt2_center"],
-                        sub.loc[m, "m1_content"],
-                        yerr=sub.loc[m, "m1_error"],
-                        fmt="o",
-                        label="m1"
-                    )
-              
-                # ---------- overlay: m2 (uses DRAW_COEF) ----------
-                m = sub["m2_content"].notna()
-                if m.any():
-                    ax.errorbar(
-                        sub.loc[m, "pt2_center"],
-                        sub.loc[m, "m2_content"] * DRAW_COEF,
-                        yerr=sub.loc[m, "m2_error"] * abs(DRAW_COEF),
-                        fmt="s",
-                        label=f"m2 * {DRAW_COEF:.6g}"
-                    )
-                """
-                # ---------- overlay: m3 (NO DRAW_COEF) ----------
+                zc = z_bin_center(np.array([z]), Z_EDGES)[0]
+
+                # ---------- overlay: m3 ----------
                 m = sub["m3_content"].notna()
                 if m.any():
                     ax.errorbar(
@@ -309,7 +315,7 @@ def main():
                         fmt="D",
                         label="Primary workflow"
                     )
-                
+
                 # ---------- overlay: reference ----------
                 mref = sub["ref_y"].notna()
                 if mref.any():
@@ -324,43 +330,23 @@ def main():
                         label="Legacy"
                     )
 
-                ax.set_title(f"z_bin={z}")
+                ax.set_title(f"z = {zc:.2f}")
                 ax.grid(True, alpha=0.3)
 
-                # ---------------- Ratios m1/ref, m2/ref, m3/ref ----------------
+                # ---------------- Ratios m3/ref ----------------
                 x = sub["pt2_center"].to_numpy(dtype=float)
                 den = sub["ref_y"].to_numpy(dtype=float)
                 eden = _sym_ref_err(sub["ref_eyl"], sub["ref_eyh"])
 
-              
-                """
-                # m1/ref (uses DRAW_COEF)
-                num1 = sub["m1_content"].to_numpy(dtype=float) 
-                en1  = sub["m1_error"].to_numpy(dtype=float) 
-                r1, er1 = _ratio_with_err(num1, en1, den, eden)
-                ok1 = np.isfinite(x) & np.isfinite(r1) & np.isfinite(er1)
-                if np.any(ok1):
-                    axR.errorbar(x[ok1], r1[ok1], yerr=er1[ok1], fmt="o", label="m1 / Legacy workflows")
-                
-                # m2/ref (uses DRAW_COEF)
-                num2 = sub["m2_content"].to_numpy(dtype=float) * DRAW_COEF
-                en2  = sub["m2_error"].to_numpy(dtype=float) * abs(DRAW_COEF)
-                r2, er2 = _ratio_with_err(num2, en2, den, eden)
-                ok2 = np.isfinite(x) & np.isfinite(r2) & np.isfinite(er2)
-                if np.any(ok2):
-                    axR.errorbar(x[ok2], r2[ok2], yerr=er2[ok2], fmt="s", label="m2/ref")
-                """
-              
-                # m3/ref (NO DRAW_COEF)
                 num3 = sub["m3_content"].to_numpy(dtype=float)
                 en3  = sub["m3_error"].to_numpy(dtype=float)
                 r3, er3 = _ratio_with_err(num3, en3, den, eden)
                 ok3 = np.isfinite(x) & np.isfinite(r3) & np.isfinite(er3)
                 if np.any(ok3):
                     axR.errorbar(x[ok3], r3[ok3], yerr=er3[ok3], fmt="D", label="Primary / Legacy workflows")
-                
+
                 axR.axhline(1.0, linestyle="--", linewidth=1)
-                axR.set_title(f"z_bin={z}")
+                axR.set_title(f"z = {zc:.2f}")
                 axR.grid(True, alpha=0.3)
 
                 if ax.get_legend_handles_labels()[0]:
@@ -373,7 +359,6 @@ def main():
                 axes[j].axis("off")
                 axesR[j].axis("off")
 
-            # --- Titles / labels ---
             fig.suptitle(
                 f"Overlay vs pT2 (xq2_bin={xq2}, scale_content={cs:.3g}, scale_acc={ca:.3g}, DRAW_COEF={DRAW_COEF:.6g}; m3 no coef)"
             )

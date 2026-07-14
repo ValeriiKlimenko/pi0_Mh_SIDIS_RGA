@@ -27,8 +27,6 @@ void gen_root_files_gen_dis(string inputPath, string hipoFile, string outputPath
 
   //create particles before looping to be more efficient
   auto db = TDatabasePDG::Instance();
-  TLorentzVector p4_gamma1;
-  TLorentzVector p4_gamma2;
   TLorentzVector p4_ele(0, 0, 0, m_e);
   TLorentzVector pro(0, 0, 0, m_p);
   vector<ushort> cal = {PCAL, ECIN, ECOUT};
@@ -81,7 +79,7 @@ void gen_root_files_gen_dis(string inputPath, string hipoFile, string outputPath
       
         qVec = (TLorentzVector){0, 0, sqrt(b_E*b_E - p4_ele.M2()), b_E} - p4_ele;
 
-        if (qVec.E() / b_E >= 0.75){goodRecEle = 0;}//y cut
+        if (qVec.E() / b_E >= 0.8){goodRecEle = 0;}//y cut
         if ((pro + qVec).M() <= 2){goodRecEle = 0;}//W cut
         e_s = ele[0]->cal(PCAL)->getSector();
 

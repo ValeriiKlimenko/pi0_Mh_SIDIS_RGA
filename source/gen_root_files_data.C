@@ -3,7 +3,7 @@
 #include <iguana/algorithms/clas12/PhotonGBTFilter/Algorithm.h>
 
 
-void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
+void gen_root_files_data(string inputPath, string hipoFile, string outputPath, bool is_greg_ai = false){
   //Graph styles
   gROOT->SetStyle("Plain");
   gStyle->SetOptFit(1);
@@ -27,41 +27,33 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
   TLorentzVector p4_gamma2;
   TLorentzVector p4_ele(0, 0, 0, m_e);
 
-
-
-
   // create iguana algorithms
   iguana::clas12::PhotonGBTFilter  algo_photon;   // filter the z-vertex (a filter algorithm)
+  algo_photon.SetOption("pass", 2);  
+  algo_photon.SetOption("o_threshold", 0.78);
   algo_photon.Start();
 
-  auto iguana_action = [
-       // capture the algorithm instances; use the ampersand (`&`) to capture them by reference
-       &algo_photon,
-     ](clas12::clas12reader* cr)
-     {
-      // next, let's apply the fiducial cuts; we'll skip FT cuts for this example, but take a look
-      // at the algorithm's documentation for other `Run` functions that use FT data
-      if(!algo_photon.Run(
-            cr->getRECParticle(),    // REC::Particle
-            cr->getRECCalorimeter(), // REC::Calorimeter
-            cr->getRUNconfig(),      // RUN::config
-            )) return false;
-  
-      // all algorithms are done, return true to keep the event
-      // (otherwise return false if you have some reason to not keep the event)
-      return true;
+  auto iguana_action = [&algo_photon](clas12::clas12reader* cr)
+  {
+    algo_photon.Run(
+      cr->getRECParticle(),
+      cr->getRECCalorimeter(),
+      cr->getRUNconfig()
+    );
+    return true;
   };
 
-  
+  cout<<"greg AI is:"<<is_greg_ai<<endl;
 
   //Loop over files
   for(int ifile=0;ifile<chain.GetNFiles();++ifile){
+
     clas12reader c12{chain.GetFileName(ifile).Data()};
+    if (is_greg_ai) c12.SetReadAction(iguana_action);
 
     //Golden runs
     clas12databases db;
     c12.connectDataBases(&db);
-    c12.SetReadAction(iguana_action);
 
     c12.applyQA("pass2");
     c12.db()->qadb_addQARequirement("MarginalOutlier");
@@ -99,9 +91,9 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
                               "g2_pcalE","g2_ecinE","g2_ecoutE",
                               //electrons Vz:
                                "e_vz", "e_sec_DC", 
-                               "e_edge_R1", "e_edge_R2", "e_edge_R3",
+                               "e_edge_R1", "e_edge_R2", "e_edge_R3"
                                 //iguana:
-                                "PhotonGBTF"
+                                //,"PhotonGBTF"
     
                                };
     vector <double> add(bList.size());
@@ -119,7 +111,7 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
       
       auto parts=c12.getDetParticles();
       auto ele=c12.getByID(11);
-      auto gammas=c12.getByID(22);
+      auto gammas = is_greg_ai ? c12.getByID(22, true) : c12.getByID(22);
 
       if (!goodEventElectron(ele[0])){continue;}
 
@@ -168,10 +160,6 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
              double g1b = gammas[i]->par()->getBeta();
              double g2b = gammas[j]->par()->getBeta();
 
-             // iguana PhotonGBTFilter bool for gamma1 and gamma2:
-             bool PGBT_gamama1 = 0;
-             bool PGBT_gamama2 = 0;
-
              add = {p4_ele.Px(), p4_ele.Py(), p4_ele.Pz(), (double)e_s, ev, ew,
                     p4_gamma1.Px(), p4_gamma1.Py(), p4_gamma1.Pz(), (double)ga_s1, g1v, g1w, (double)g1_s[0], g1b,
                     p4_gamma2.Px(), p4_gamma2.Py(), p4_gamma2.Pz(), (double)ga_s2, g2v, g2w, (double)g2_s[0], g2b,
@@ -197,7 +185,7 @@ void gen_root_files_data(string inputPath, string hipoFile, string outputPath){
                     gammas[i]->cal(PCAL)->getEnergy(),gammas[i]->cal(ECIN)->getEnergy(),gammas[i]->cal(ECOUT)->getEnergy(),
                     gammas[j]->cal(PCAL)->getEnergy(),gammas[j]->cal(ECIN)->getEnergy(),gammas[j]->cal(ECOUT)->getEnergy(),
 
-                    //Vz:
+                    //Vz:s
                     ele[0]->par()->getVz(),
                     (double) ele[0]->getSector(),
                     ele[0]->traj(DC,6)->getEdge(),ele[0]->traj(DC,18)->getEdge(),ele[0]->traj(DC,36)->getEdge()

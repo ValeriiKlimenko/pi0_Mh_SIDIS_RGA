@@ -153,7 +153,7 @@ static bool build_response_in_memory(ResponseBundle& out,
 
   // Measured data file (for h_meas_data)
   const char* data_file =
-    "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/unfolding_rec_data/"
+    "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/unfolding_rec_data_05/"
     "h3_bin_xBQ2_Valerii__zpt2phit_8x8x9__pi0_m_fitted.root";
 
   ROOT::DisableImplicitMT();
@@ -354,7 +354,7 @@ static bool build_response_in_memory(ResponseBundle& out,
 
   // ---- Truth-only Misses (from gen_binning_2D.root) ----
   {
-    const char* miss2d_file  = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/gen_binning_2D.root";
+    const char* miss2d_file  = "/w/hallb-scshelf2102/clas12/valerii/multiPi0/pass2_v3/gen_binning_2D_813f_no_gemc512.root";
     const char* miss2d_hname = "h2_binX_vs_z"; // change if your object name differs
 
     auto h_truth_like = LoadTruthLikeFromGen2D(
@@ -541,7 +541,7 @@ static int unfold_from_memory(const ResponseBundle& pack,
     tag = "BinByBin";
   }
 
-  unfold->SetVerbose(0);
+  unfold->SetVerbose(1);
   auto errModeHist = RooUnfold::kErrors;
   TH1* h_unfold_raw = dynamic_cast<TH1*>(unfold->Hunfold(errModeHist));
   if (!h_unfold_raw) {
@@ -593,7 +593,7 @@ static int unfold_from_memory(const ResponseBundle& pack,
 // Save Bayes unfolded output after *every* iteration (1..maxIter).
 // Still 1D, flattened global bin.
 static int unfold_bayes_save_each_iter(const ResponseBundle& pack,
-                                       int  maxIter          = 6,
+                                       int  maxIter          = 9,
                                        const char* out_base  = "unfold_bayes",
                                        bool put_all_in_one   = true,
                                        bool /*make_pngs*/    = false)
@@ -634,7 +634,7 @@ static int unfold_bayes_save_each_iter(const ResponseBundle& pack,
                       std::ofstream& chi2txt)
   {
     RooUnfoldBayes u(pack.resp.get(), h_input, i);
-    u.SetVerbose(0);  // set to 1 if you also want RooUnfold's own console "Chi^2 of change"
+    u.SetVerbose(1);  // set to 1 if you also want RooUnfold's own console "Chi^2 of change"
 
     TH1* h_unfold_raw = dynamic_cast<TH1*>(u.Hunfold(RooUnfold::kErrors));
     if (!h_unfold_raw) {
@@ -798,8 +798,8 @@ static int unfold_bayes_save_each_iter(const ResponseBundle& pack,
 // or similar.
 
 int onepass_unfold(const char* method = "",
-                   int nIter = 5,
-                   const char* out_bayes = "unfold_out_bayes.root",
+                   int nIter = 4,
+                   const char* out_bayes = "unfold_out_bayes_it4.root",
                    const char* out_bbb   = "unfold_out_bbb.root",
                    bool write_response_snapshot = false)
 {

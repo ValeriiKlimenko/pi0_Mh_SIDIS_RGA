@@ -58,7 +58,9 @@ void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
                              "e_pcalE","e_ecinE","e_ecoutE",
                              //electrons Vz:
                              "e_vz", "e_sec_DC",
-                             "e_edge_R1", "e_edge_R2", "e_edge_R3"
+                             "e_edge_R1", "e_edge_R2", "e_edge_R3",
+                              //Elec rec momenta for cuts:
+                              "ex_rec", "ey_rec", "ez_rec"
     };
 
     vector <double> add(bList.size());
@@ -84,7 +86,7 @@ void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
       
         qVec = (TLorentzVector){0, 0, sqrt(b_E*b_E - p4_ele.M2()), b_E} - p4_ele;
 
-        if (qVec.E() / b_E >= 0.8){goodRecEle = 0;}//y cut
+        if (qVec.E() / b_E >= 0.75){goodRecEle = 0;}//y cut
         if ((pro + qVec).M() <= 2){goodRecEle = 0;}//W cut
         e_s = ele[0]->cal(PCAL)->getSector();
 
@@ -139,6 +141,8 @@ void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
                   0, 0, 0,
                   0, 0, 
                   0, 0, 0,
+                  // rec momenta for cuts:
+                  0, 0, 0
               };
           }
           if (goodRecEle == 1){
@@ -160,8 +164,9 @@ void gen_root_files_gen(string inputPath, string hipoFile, string outputPath){
                   //Vz:
                   ele[0]->par()->getVz(),
                   (double)ele[0]->getSector(),
-                  ele[0]->traj(DC,6)->getEdge(),ele[0]->traj(DC,18)->getEdge(),ele[0]->traj(DC,36)->getEdge()       
-                
+                  ele[0]->traj(DC,6)->getEdge(),ele[0]->traj(DC,18)->getEdge(),ele[0]->traj(DC,36)->getEdge(),
+                  // rec electron momentum for gen cuts for SIDIS studies 
+                  ele[0]->par()->getPx(), ele[0]->par()->getPy(), ele[0]->par()->getPz()
                 };    
           }
           add = res;

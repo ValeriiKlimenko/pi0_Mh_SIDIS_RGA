@@ -2,18 +2,35 @@
 import os, sys, shutil, subprocess, socket, getpass
 from pathlib import Path
 from datetime import datetime
+import argparse
+
+parser = argparse.ArgumentParser(description="Launch rec jobs in screen batches")
+parser.add_argument(
+    "--is_greg_ai",
+    type=int,
+    choices=(0, 1),
+    default=0,
+    help="Pass 1 (true) / 0 (false) as 4th arg to gen_root_files_rec(...)"
+)
+args = parser.parse_args()
+IS_GREG_AI = args.is_greg_ai
 
 # --- user settings ---
 BASE_DIRS = [
-    "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/"
+    "/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/",
     #"/cache/clas12/rg-a/production/montecarlo/clasdis_pass2/fa18_inb/Q2_1.5GeV/"
 ]
 # file patterns to include (adjust as needed)
 FILE_GLOBS = ("*.hipo",)
 
-rootpath   = "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/"
+rootpath = (
+    "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec_greg_ai/"
+    if IS_GREG_AI == 1
+    else "/lustre24/expphy/volatile/clas12/valerii/multi_pi0/data_rec/"
+)
+
 rootprefix = "rec_f2018_"
-MAX_PARALLEL = 35
+MAX_PARALLEL = 49
 
 # --- checks ---
 if shutil.which("screen") is None:
@@ -75,6 +92,7 @@ for b, n in per_base_counts.items():
 print(f"Total files found: {len(files)}")
 print(f"LOG_DIR:   {LOG_DIR}")
 print(f"BATCH_DIR: {BATCH_DIR}")
+print(f"is_greg_ai: {IS_GREG_AI}")
 print("="*78)
 
 # bucketize work
@@ -124,6 +142,7 @@ LOG_DIR="{LOG_DIR}"
 MISSING_LOG="{MISSING_LOG}"
 FAILED_LOG="{FAILED_LOG}"
 BATCH_LIST="{lst}"
+IS_GREG_AI="{IS_GREG_AI}"
 
 {LD_EXPORT}
 
@@ -174,7 +193,10 @@ while IFS=$'\\t' read -r HIPOPATH file name stem || [[ -n "${{HIPOPATH:-}}" ]]; 
   fi
 
   # If your macro only takes 3 args, use this instead:
-  cmd="clas12root -q 'source/gen_root_files_rec.C(\\"${{HIPOPATH}}\\", \\"${{file}}\\", \\"${{ROOTPATH}}${{ROOTPREFIX}}\\")'"
+
+
+
+  cmd="clas12root -q 'source/gen_root_files_rec.C(\\"${{HIPOPATH}}\\", \\"${{file}}\\", \\"${{ROOTPATH}}${{ROOTPREFIX}}\\", ${{IS_GREG_AI}})'"
 
   echo "[{b}][$i/$TOTAL] START $(date '+%F %T') → $cmd" | tee -a "$LOG_FILE"
   SECONDS=0
